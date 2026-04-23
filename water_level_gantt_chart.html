@@ -5,7 +5,11 @@
     <title>Water Level Windows Gantt</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
-        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #1a1a1a; font-family: Arial, sans-serif; }
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            overflow: hidden; background-color: #1a1a1a; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+        }
         #chart_container { width: 100%; height: 98vh; }
     </style>
 </head>
@@ -13,26 +17,36 @@
     <div id="chart_container"></div>
 
     <script type="text/javascript">
+        // 1. Configuration
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/stofs_pred_utc/FeatureServer/0/query";
         const apiKey = "AAPTaH7OehDzKeYnCi_rxWuBJ0g..o1c0X6U0lqnbVVsF1hYhbFRQABeJbAleNkr1OEtiDLyGANPbe3XgyDCFF0wEKOz5f2GC__2Ff7YO972xlf5oshHeayTI7okMi2Ns0uJtjZ3YEF4dcGuH1GFkW4WjEf3uq94T7W2FyUePpmTH9oZO2oHzdwLB1PyBtWxGtAy8fb881ta7ch2-I7OJnMOXHEPN02w_TdzswKlcwjNAiJcpbRcFNFaVqkkFGf3xsrE710w8l3L5LSEW594ssQv4tMNvy9EtDsx18g..AT2_eCzFENFL"; 
         let myChart;
+        let lastUrl = ""; // To track changes and prevent flickering
 
+        // 2. The Data Engine
         async function fetchWaterLevels() {
-            const urlParams = new URLSearchParams(window.location.search);
+            const currentUrl = window.location.search;
+            // Only fetch if the URL has actually changed (user clicked a filter)
+            if (currentUrl === lastUrl && myChart) return;
+            lastUrl = currentUrl;
+
+            const urlParams = new URLSearchParams(currentUrl);
             let sqlWhere = "1=1";
 
-            // List of potential filters from your Dashboard selectors
+            // Define our active filters
             const filters = ['project', 'datum', 'line_name', 'date_'];
             
             filters.forEach(key => {
-                if (urlParams.has(key) && urlParams.get(key) !== "" && urlParams.get(key) !== "null") {
-                    sqlWhere += ` AND ${key} = '${urlParams.get(key)}'`;
+                const val = urlParams.get(key);
+                if (val && val !== "" && val !== "null" && val !== "undefined") {
+                    // All your fields are currently treated as Strings in the SQL query
+                    sqlWhere += ` AND ${key} = '${val}'`;
                 }
             });
 
             const params = new URLSearchParams({
                 where: sqlWhere,
-                outFields: "*", // Get everything to be safe
+                outFields: "line_name,start,end_", 
                 returnGeometry: "false",
                 f: "json",
                 token: apiKey
@@ -42,55 +56,66 @@
                 const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
                 const data = await response.json();
                 
-                if (data.features && data.features.length > 0) {
-                    drawChart(data.features);
-                } else {
-                    console.warn("No features returned for query:", sqlWhere);
-                    // If no data, we clear the chart so it doesn't show old/invalid bars
-                    if(myChart) myChart.updateSeries([]);
+                if (data.features) {
+                    processAndDraw(data.features);
                 }
             } catch (error) {
                 console.error("Fetch failed:", error);
             }
         }
 
-        function drawChart(features) {
-            let chartData = [];
-
-            features.forEach(feature => {
-                const attr = feature.attributes;
-                // ArcGIS returns timestamps in milliseconds, which Date() loves
-                if (attr.start && attr.end_) {
-                    chartData.push({
-                        x: attr.line_name || "N/A",
-                        y: [new Date(attr.start).getTime(), new Date(attr.end_).getTime()]
-                    });
-                }
-            });
+        // 3. The Charting Engine
+        function processAndDraw(features) {
+            const chartData = features.map(f => {
+                const a = f.attributes;
+                return {
+                    x: a.line_name || "Unknown",
+                    y: [new Date(a.start).getTime(), new Date(a.end_).getTime()]
+                };
+            }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
 
             if (myChart) {
                 myChart.updateSeries([{ data: chartData }]);
-                return;
+            } else {
+                const options = {
+                    series: [{ data: chartData }],
+                    chart: { 
+                        type: 'rangeBar', 
+                        height: '100%', 
+                        foreColor: '#f0f0f0',
+                        toolbar: { show: false },
+                        animations: { enabled: true, speed: 400 }
+                    },
+                    plotOptions: { 
+                        bar: { 
+                            horizontal: true, 
+                            distributed: true, 
+                            barHeight: '70%',
+                            dataLabels: { hideOverflowingLabels: true }
+                        } 
+                    },
+                    xaxis: { 
+                        type: 'datetime',
+                        labels: { datetimeUTC: true } 
+                    },
+                    yaxis: {
+                        title: { text: 'Line Name' },
+                        labels: { minWidth: 100 }
+                    },
+                    grid: { borderColor: '#333' },
+                    tooltip: { theme: 'dark', x: { format: 'MMM dd, HH:mm' } },
+                    legend: { show: false }
+                };
+                myChart = new ApexCharts(document.querySelector("#chart_container"), options);
+                myChart.render();
             }
-
-            var options = {
-                series: [{ data: chartData }],
-                chart: { type: 'rangeBar', height: '100%', foreColor: '#ccc', toolbar: { show: false } },
-                plotOptions: { bar: { horizontal: true, distributed: true, barHeight: '80%' } },
-                xaxis: { type: 'datetime' },
-                yaxis: { labels: { style: { colors: '#ccc' } } },
-                grid: { borderColor: '#404040' },
-                tooltip: { theme: 'dark' },
-                legend: { show: false }
-            };
-
-            myChart = new ApexCharts(document.querySelector("#chart_container"), options);
-            myChart.render();
         }
 
+        // 4. Initial Load
         fetchWaterLevels();
-        // Check for URL changes every 2 seconds (Dashboard hack if "URL defines content" is finicky)
-        setInterval(fetchWaterLevels, 2000); 
+
+        // 5. THE FILTER LISTENER: Checks for Dashboard URL changes every 0.5 seconds
+        setInterval(fetchWaterLevels, 500);
     </script>
 </body>
 </html>
