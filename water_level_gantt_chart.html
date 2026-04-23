@@ -2,19 +2,82 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Water Level Windows Gantt (JS Color Override)</title>
+    <title>Water Level Windows Gantt (Standalone App)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
+        /* 1. Bulletproof layout constraints */
         html, body { 
-            margin: 0; padding: 0; width: 100%; height: 100%; 
-            overflow: hidden; background-color: #1a1a1a; 
+            margin: 0; padding: 0; 
+            width: 100vw; height: 100vh; /* Strictly viewport dimensions */
+            overflow: hidden; /* Stops the whole page from scrolling */
+            background-color: #1a1a1a; 
             font-family: 'Segoe UI', Tahoma, Arial, sans-serif; 
+            display: flex;
+            flex-direction: column;
         }
-        #chart_container { width: 100%; height: 98vh; }
+        
+        /* 2. UI Bar: Takes exactly the space it needs */
+        #ui_controls {
+            flex: 0 0 auto; 
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 15px;
+            background-color: #222;
+            border-bottom: 1px solid #444;
+            align-items: center;
+        }
+        
+        #ui_controls select, #ui_controls input, #ui_controls button {
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+            outline: none;
+        }
+
+        #ui_controls select:hover, #ui_controls input:hover { border-color: #777; }
+
+        #ui_controls button {
+            background-color: #008FFB;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        #ui_controls button:hover { background-color: #0076d1; }
+
+        /* 3. The Wrapper Trick: Forces the chart to NEVER push past the screen */
+        #chart_wrapper {
+            flex: 1 1 auto; 
+            position: relative;
+            width: 100%;
+        }
+
+        #chart_container { 
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+        }
     </style>
 </head>
 <body>
-    <div id="chart_container"></div>
+    
+    <div id="ui_controls">
+        <select id="filter-project"><option value="">All Projects</option></select>
+        <select id="filter-source"><option value="">All Sources</option></select>
+        <select id="filter-datum"><option value="">All Datums</option></select>
+        <select id="filter-line"><option value="">All Lines</option></select>
+        <input type="date" id="filter-date_">
+        <button onclick="resetFilters()">Reset Filters</button>
+    </div>
+
+    <div id="chart_wrapper">
+        <div id="chart_container"></div>
+    </div>
 
     <script type="text/javascript">
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/stofs_pred_utc/FeatureServer/0/query";
@@ -22,6 +85,123 @@
         
         let myChart;
         let lastUrl = ""; 
+
+        // Helper to get Today's Date in YYYY-MM-DD format
+        function getTodayString() {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        // --- Populate Dropdowns and Handle Defaults ---
+        async function buildUI() {
+            const fields = ['project', 'source', 'datum', 'line_name'];
+            
+            for (let field of fields) {
+                const params = new URLSearchParams({
+                    where: "1=1",
+                    outFields: field,
+                    returnDistinctValues: "true",
+                    returnGeometry: "false",
+                    f: "json",
+                    token: apiKey
+                });
+
+                try {
+                    const res = await fetch(`${featureServiceUrl}?${params.toString()}`);
+                    const data = await res.json();
+                    if (data.features) {
+                        const uniqueVals = [...new Set(data.features.map(f => f.attributes[field]).filter(v => v))].sort();
+                        const selectId = field === 'line_name' ? 'filter-line' : `filter-${field}`;
+                        const selectEl = document.getElementById(selectId);
+                        
+                        if(selectEl) {
+                            uniqueVals.forEach(val => {
+                                const opt = document.createElement('option');
+                                opt.value = val;
+                                opt.textContent = val;
+                                selectEl.appendChild(opt);
+                            });
+                        }
+                    }
+                } catch (e) { console.error(`Failed to load ${field} options:`, e); }
+            }
+
+            // DEFAULT DATE LOGIC
+            const url = new URL(window.location);
+            let currentDateParam = url.searchParams.get('date_');
+            
+            // If there's no date in the URL, force today's date
+            if (!currentDateParam || currentDateParam === "null") {
+                currentDateParam = getTodayString();
+                url.searchParams.set('date_', currentDateParam);
+                // Update URL quietly without reloading the page
+                window.history.replaceState({}, '', url); 
+            }
+
+            // Set UI elements to match URL values
+            ['project', 'source', 'datum', 'line', 'date_'].forEach(param => {
+                const val = url.searchParams.get(param);
+                if (val && val !== "null") {
+                    const el = document.getElementById(`filter-${param}`);
+                    if (el) el.value = val;
+                }
+            });
+
+            // UI Listeners
+            document.querySelectorAll('#ui_controls select, #ui_controls input').forEach(el => {
+                el.addEventListener('change', (e) => {
+                    const currentUrl = new URL(window.location);
+                    const paramName = e.target.id.replace('filter-', '');
+                    
+                    if (e.target.value) {
+                        currentUrl.searchParams.set(paramName, e.target.value);
+                    } else {
+                        currentUrl.searchParams.delete(paramName); 
+                    }
+                    
+                    window.history.pushState({}, '', currentUrl);
+                    fetchWaterLevels(); 
+                });
+            });
+        }
+
+        // --- Reset Button Logic ---
+        function resetFilters() {
+            const todayStr = getTodayString();
+            const url = new URL(window.location.origin + window.location.pathname);
+            // Re-apply today's date on reset
+            url.searchParams.set('date_', todayStr);
+            window.history.pushState({}, '', url);
+
+            // Reset UI
+            document.querySelectorAll('#ui_controls select').forEach(s => s.value = '');
+            document.getElementById('filter-date_').value = todayStr;
+            
+            fetchWaterLevels();
+        }
+
+        function colorizeYAxisText() {
+            const labels = document.querySelectorAll('.apexcharts-yaxis-label');
+            labels.forEach(label => {
+                const text = label.textContent || "";
+                let targetColor = "";
+                
+                if (text.includes('PYDRO')) targetColor = '#eb97d8';
+                else if (text.includes('STOFS')) targetColor = '#80ecf0';
+                
+                if (targetColor) {
+                    label.setAttribute('fill', targetColor);
+                    label.style.fill = targetColor;
+                    label.querySelectorAll('tspan').forEach(t => {
+                        t.setAttribute('fill', targetColor);
+                        t.style.fill = targetColor;
+                    });
+                }
+            });
+        }
 
         async function fetchWaterLevels() {
             const currentUrl = window.location.search;
@@ -50,28 +230,6 @@
                 const data = await response.json();
                 if (data.features) processAndDraw(data.features, urlParams.get('date_'));
             } catch (error) { console.error("Fetch failed:", error); }
-        }
-
-        // --- THE JAVASCRIPT COLOR PAINTER ---
-        function colorizeYAxisText() {
-            const labels = document.querySelectorAll('.apexcharts-yaxis-label');
-            labels.forEach(label => {
-                const text = label.textContent || "";
-                let targetColor = "";
-                
-                if (text.includes('PYDRO')) targetColor = '#eb97d8';
-                else if (text.includes('STOFS')) targetColor = '#80ecf0';
-                
-                if (targetColor) {
-                    // Force the color onto the main text element and all multiline tspans
-                    label.setAttribute('fill', targetColor);
-                    label.style.fill = targetColor;
-                    label.querySelectorAll('tspan').forEach(t => {
-                        t.setAttribute('fill', targetColor);
-                        t.style.fill = targetColor;
-                    });
-                }
-            });
         }
 
         function processAndDraw(features, selectedDate) {
@@ -113,7 +271,6 @@
                     height: '100%', 
                     foreColor: '#ccc', 
                     toolbar: { show: false },
-                    // THIS IS WHERE THE MAGIC HAPPENS
                     events: {
                         mounted: function() { colorizeYAxisText(); },
                         updated: function() { colorizeYAxisText(); }
@@ -122,9 +279,7 @@
                 plotOptions: { bar: { horizontal: true, barHeight: '85%' } },
                 xaxis: xAxisConfig,
                 yaxis: {
-                    labels: {
-                        style: { fontSize: '10px', fontWeight: 400 }
-                    }
+                    labels: { style: { fontSize: '10px', fontWeight: 400 }, formatter: function(val) { return val; } }
                 },
                 grid: { borderColor: '#333' },
                 tooltip: { 
@@ -152,6 +307,7 @@
             }
         }
 
+        buildUI();
         fetchWaterLevels();
         setInterval(fetchWaterLevels, 1000); 
     </script>
