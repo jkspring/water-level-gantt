@@ -4,159 +4,93 @@
     <meta charset="UTF-8">
     <title>Water Level Windows Gantt</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-    
     <style>
-        html, body { 
-            margin: 0; 
-            padding: 0; 
-            width: 100%; 
-            height: 100%; 
-            overflow: hidden; 
-            font-family: Arial, sans-serif; 
-        }
-        #chart_container { 
-            width: 100%; 
-            height: 95vh; 
-            padding-top: 10px; 
-        }
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #1a1a1a; font-family: Arial, sans-serif; }
+        #chart_container { width: 100%; height: 98vh; }
     </style>
 </head>
 <body>
     <div id="chart_container"></div>
 
     <script type="text/javascript">
-        // 1. Secure ArcGIS Variables
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/stofs_pred_utc/FeatureServer/0/query";
-        const apiKey = "AAPTaH7OehDzKeYnCi_rxWuBJ0g..o1c0X6U0lqnbVVsF1hYhbFRQABeJbAleNkr1OEtiDLyGANPbe3XgyDCFF0wEKOz5f2GC__2Ff7YO972xlf5oshHeayTI7okMi2Ns0uJtjZ3YEF4dcGuH1GFkW4WjEf3uq94T7W2FyUePpmTH9oZO2oHzdwLB1PyBtWxGtAy8fb881ta7ch2-I7OJnMOXHEPN02w_TdzswKlcwjNAiJcpbRcFNFaVqkkFGf3xsrE710w8l3L5LSEW594ssQv4tMNvy9EtDsx18g..AT2_eCzFENFL"; // Replace with your actual API key
-        let myChart; // Variable to hold the chart instance
+        const apiKey = "AAPTaH7OehDzKeYnCi_rxWuBJ0g..o1c0X6U0lqnbVVsF1hYhbFRQABeJbAleNkr1OEtiDLyGANPbe3XgyDCFF0wEKOz5f2GC__2Ff7YO972xlf5oshHeayTI7okMi2Ns0uJtjZ3YEF4dcGuH1GFkW4WjEf3uq94T7W2FyUePpmTH9oZO2oHzdwLB1PyBtWxGtAy8fb881ta7ch2-I7OJnMOXHEPN02w_TdzswKlcwjNAiJcpbRcFNFaVqkkFGf3xsrE710w8l3L5LSEW594ssQv4tMNvy9EtDsx18g..AT2_eCzFENFL"; 
+        let myChart;
 
-        // 2. Fetch Data with Dashboard Filter Support
         async function fetchWaterLevels() {
-            // Check the URL for any parameters sent by the Dashboard
             const urlParams = new URLSearchParams(window.location.search);
-            
-            // Base SQL query (returns everything by default)
             let sqlWhere = "1=1";
 
-            // Dynamically append filters if they exist in the URL
-            if (urlParams.has('project')) {
-                sqlWhere += ` AND project = '${urlParams.get('project')}'`; 
-            }
-            if (urlParams.has('datum')) {
-                sqlWhere += ` AND datum = '${urlParams.get('datum')}'`;
-            }
-            if (urlParams.has('line_name')) {
-                sqlWhere += ` AND line_name = '${urlParams.get('line_name')}'`;
-            }
-            if (urlParams.has('date_')) {
-                sqlWhere += ` AND date_ = '${urlParams.get('date_')}'`;
-            }
+            // List of potential filters from your Dashboard selectors
+            const filters = ['project', 'datum', 'line_name', 'date_'];
+            
+            filters.forEach(key => {
+                if (urlParams.has(key) && urlParams.get(key) !== "" && urlParams.get(key) !== "null") {
+                    sqlWhere += ` AND ${key} = '${urlParams.get(key)}'`;
+                }
+            });
 
             const params = new URLSearchParams({
-                where: sqlWhere, 
-                outFields: "*", 
+                where: sqlWhere,
+                outFields: "*", // Get everything to be safe
                 returnGeometry: "false",
                 f: "json",
-                token: apiKey 
+                token: apiKey
             });
 
             try {
                 const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
                 const data = await response.json();
                 
-                if (data.features) {
-                    drawChart(data.features); 
+                if (data.features && data.features.length > 0) {
+                    drawChart(data.features);
                 } else {
-                    console.error("ArcGIS Error:", data);
+                    console.warn("No features returned for query:", sqlWhere);
+                    // If no data, we clear the chart so it doesn't show old/invalid bars
+                    if(myChart) myChart.updateSeries([]);
                 }
             } catch (error) {
                 console.error("Fetch failed:", error);
             }
         }
 
-        // 3. Draw or Update the Chart
         function drawChart(features) {
             let chartData = [];
 
-            // Format data for ApexCharts
             features.forEach(feature => {
                 const attr = feature.attributes;
-                
-                // Skip records without start/end times
-                if (!attr.start || !attr.end_) return;
-
-                const lineName = attr.line_name ? attr.line_name : "Unnamed Line";
-                
-                chartData.push({
-                    x: lineName,
-                    y: [
-                        new Date(attr.start).getTime(), 
-                        new Date(attr.end_).getTime()
-                    ]
-                });
+                // ArcGIS returns timestamps in milliseconds, which Date() loves
+                if (attr.start && attr.end_) {
+                    chartData.push({
+                        x: attr.line_name || "N/A",
+                        y: [new Date(attr.start).getTime(), new Date(attr.end_).getTime()]
+                    });
+                }
             });
 
-            // If the chart already exists, just update its data (fast refresh)
             if (myChart) {
                 myChart.updateSeries([{ data: chartData }]);
                 return;
             }
 
-            // First time drawing the chart: Set up standard Gantt options
             var options = {
-                series: [{
-                    name: 'Water Level Window',
-                    data: chartData
-                }],
-                chart: {
-                    type: 'rangeBar',
-                    height: '100%',
-                    toolbar: { show: false } 
-                },
-                plotOptions: {
-                    bar: {
-                        horizontal: true, // Classic Gantt layout
-                        distributed: true // Auto-assigns unique colors per line
-                    }
-                },
-                dataLabels: {
-                    enabled: false
-                },
-                xaxis: {
-                    type: 'datetime',
-                    title: { text: 'Time Range (X-Axis)', style: { fontWeight: 'bold' } },
-                    labels: {
-                        formatter: function (value) {
-                            return new Date(value).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'});
-                        }
-                    }
-                },
-                yaxis: {
-                    title: { text: 'Line Number (Y-Axis)', style: { fontWeight: 'bold' } }
-                },
-                tooltip: {
-                    x: {
-                        formatter: function(val) { return "Line: " + val; }
-                    },
-                    y: {
-                        formatter: function(val) {
-                            return new Date(val).toLocaleString();
-                        }
-                    }
-                },
-                legend: {
-                    show: false 
-                }
+                series: [{ data: chartData }],
+                chart: { type: 'rangeBar', height: '100%', foreColor: '#ccc', toolbar: { show: false } },
+                plotOptions: { bar: { horizontal: true, distributed: true, barHeight: '80%' } },
+                xaxis: { type: 'datetime' },
+                yaxis: { labels: { style: { colors: '#ccc' } } },
+                grid: { borderColor: '#404040' },
+                tooltip: { theme: 'dark' },
+                legend: { show: false }
             };
 
-            // Render the chart to the page
             myChart = new ApexCharts(document.querySelector("#chart_container"), options);
             myChart.render();
         }
 
-        // 4. Initialization and Auto-Refresh
-        fetchWaterLevels(); // Pulls data on initial load
-        setInterval(fetchWaterLevels, 3600000); // Silently refreshes every 1 hour
+        fetchWaterLevels();
+        // Check for URL changes every 2 seconds (Dashboard hack if "URL defines content" is finicky)
+        setInterval(fetchWaterLevels, 2000); 
     </script>
 </body>
 </html>
