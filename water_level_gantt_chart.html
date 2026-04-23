@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Water Level Windows Gantt</title>
+    <title>Water Level Windows Gantt (Local Time)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         html, body { 
@@ -17,14 +17,12 @@
     <div id="chart_container"></div>
 
     <script type="text/javascript">
-        // 1. Configuration
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/stofs_pred_utc/FeatureServer/0/query";
         const apiKey = "AAPTaH7OehDzKeYnCi_rxWuBJ0g..o1c0X6U0lqnbVVsF1hYhbFRQABeJbAleNkr1OEtiDLyGANPbe3XgyDCFF0wEKOz5f2GC__2Ff7YO972xlf5oshHeayTI7okMi2Ns0uJtjZ3YEF4dcGuH1GFkW4WjEf3uq94T7W2FyUePpmTH9oZO2oHzdwLB1PyBtWxGtAy8fb881ta7ch2-I7OJnMOXHEPN02w_TdzswKlcwjNAiJcpbRcFNFaVqkkFGf3xsrE710w8l3L5LSEW594ssQv4tMNvy9EtDsx18g..AT2_eCzFENFL"; 
         
         let myChart;
         let lastUrl = ""; 
 
-        // 2. Fetch Logic
         async function fetchWaterLevels() {
             const currentUrl = window.location.search;
             if (currentUrl === lastUrl && myChart) return;
@@ -32,8 +30,6 @@
 
             const urlParams = new URLSearchParams(currentUrl);
             let sqlWhere = "1=1";
-
-            // Supports your URL parameters: project, datum, line_name, date_, and line
             const filters = ['project', 'datum', 'line_name', 'date_', 'line'];
             
             filters.forEach(key => {
@@ -66,26 +62,32 @@
             }
         }
 
-        // 3. Drawing Logic
         function processAndDraw(features, selectedDate) {
             const chartData = features.map(f => {
                 const a = f.attributes;
+                // JavaScript Date constructor will convert the UTC millisecond timestamp 
+                // from ArcGIS into the browser's local time automatically.
                 return {
                     x: a.line_name || "Unknown",
                     y: [new Date(a.start).getTime(), new Date(a.end_).getTime()]
                 };
             }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
 
-            // Logic to show entire 24-hour day if date_ is filtered
             let xAxisConfig = { 
                 type: 'datetime',
-                labels: { datetimeUTC: true } 
+                labels: { 
+                    datetimeUTC: false // CRITICAL: This tells the chart to use local browser time
+                } 
             };
 
             if (selectedDate && selectedDate !== "null") {
-                // Forces X-Axis to span from 00:00:00 to 23:59:59 of selected day
-                xAxisConfig.min = new Date(selectedDate + "T00:00:00Z").getTime();
-                xAxisConfig.max = new Date(selectedDate + "T23:59:59Z").getTime();
+                // Parse the selected date and set limits based on LOCAL midnight to midnight
+                const parts = selectedDate.split('-');
+                const localStart = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0);
+                const localEnd = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
+
+                xAxisConfig.min = localStart.getTime();
+                xAxisConfig.max = localEnd.getTime();
             }
 
             if (myChart) {
@@ -107,7 +109,10 @@
                     },
                     xaxis: xAxisConfig,
                     grid: { borderColor: '#444' },
-                    tooltip: { theme: 'dark', x: { format: 'HH:mm' } },
+                    tooltip: { 
+                        theme: 'dark', 
+                        x: { format: 'HH:mm (local)' } 
+                    },
                     legend: { show: false }
                 };
                 myChart = new ApexCharts(document.querySelector("#chart_container"), options);
@@ -116,7 +121,6 @@
         }
 
         fetchWaterLevels();
-        // Check for dashboard-driven URL changes every 500ms
         setInterval(fetchWaterLevels, 500);
     </script>
 </body>
