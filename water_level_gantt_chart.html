@@ -8,7 +8,7 @@
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
             overflow: hidden; background-color: #1a1a1a; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif; 
         }
         #chart_container { width: 100%; height: 98vh; }
     </style>
@@ -20,27 +20,30 @@
         // 1. Configuration
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/stofs_pred_utc/FeatureServer/0/query";
         const apiKey = "AAPTaH7OehDzKeYnCi_rxWuBJ0g..o1c0X6U0lqnbVVsF1hYhbFRQABeJbAleNkr1OEtiDLyGANPbe3XgyDCFF0wEKOz5f2GC__2Ff7YO972xlf5oshHeayTI7okMi2Ns0uJtjZ3YEF4dcGuH1GFkW4WjEf3uq94T7W2FyUePpmTH9oZO2oHzdwLB1PyBtWxGtAy8fb881ta7ch2-I7OJnMOXHEPN02w_TdzswKlcwjNAiJcpbRcFNFaVqkkFGf3xsrE710w8l3L5LSEW594ssQv4tMNvy9EtDsx18g..AT2_eCzFENFL"; 
+        
         let myChart;
-        let lastUrl = ""; // To track changes and prevent flickering
+        let lastUrl = ""; 
 
-        // 2. The Data Engine
+        // 2. Fetch Logic
         async function fetchWaterLevels() {
             const currentUrl = window.location.search;
-            // Only fetch if the URL has actually changed (user clicked a filter)
             if (currentUrl === lastUrl && myChart) return;
             lastUrl = currentUrl;
 
             const urlParams = new URLSearchParams(currentUrl);
             let sqlWhere = "1=1";
 
-            // Define our active filters
-            const filters = ['project', 'datum', 'line_name', 'date_'];
+            // Supports your URL parameters: project, datum, line_name, date_, and line
+            const filters = ['project', 'datum', 'line_name', 'date_', 'line'];
             
             filters.forEach(key => {
                 const val = urlParams.get(key);
-                if (val && val !== "" && val !== "null" && val !== "undefined") {
-                    // All your fields are currently treated as Strings in the SQL query
-                    sqlWhere += ` AND ${key} = '${val}'`;
+                if (val && val !== "" && val !== "null") {
+                    if (key === 'line') {
+                        sqlWhere += ` AND line_name = '${val}'`;
+                    } else {
+                        sqlWhere += ` AND ${key} = '${val}'`;
+                    }
                 }
             });
 
@@ -55,17 +58,16 @@
             try {
                 const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
                 const data = await response.json();
-                
                 if (data.features) {
-                    processAndDraw(data.features);
+                    processAndDraw(data.features, urlParams.get('date_'));
                 }
             } catch (error) {
                 console.error("Fetch failed:", error);
             }
         }
 
-        // 3. The Charting Engine
-        function processAndDraw(features) {
+        // 3. Drawing Logic
+        function processAndDraw(features, selectedDate) {
             const chartData = features.map(f => {
                 const a = f.attributes;
                 return {
@@ -74,36 +76,38 @@
                 };
             }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
 
+            // Logic to show entire 24-hour day if date_ is filtered
+            let xAxisConfig = { 
+                type: 'datetime',
+                labels: { datetimeUTC: true } 
+            };
+
+            if (selectedDate && selectedDate !== "null") {
+                // Forces X-Axis to span from 00:00:00 to 23:59:59 of selected day
+                xAxisConfig.min = new Date(selectedDate + "T00:00:00Z").getTime();
+                xAxisConfig.max = new Date(selectedDate + "T23:59:59Z").getTime();
+            }
+
             if (myChart) {
-                myChart.updateSeries([{ data: chartData }]);
+                myChart.updateOptions({
+                    series: [{ data: chartData }],
+                    xaxis: xAxisConfig
+                });
             } else {
                 const options = {
                     series: [{ data: chartData }],
                     chart: { 
                         type: 'rangeBar', 
                         height: '100%', 
-                        foreColor: '#f0f0f0',
-                        toolbar: { show: false },
-                        animations: { enabled: true, speed: 400 }
+                        foreColor: '#ccc',
+                        toolbar: { show: false }
                     },
                     plotOptions: { 
-                        bar: { 
-                            horizontal: true, 
-                            distributed: true, 
-                            barHeight: '70%',
-                            dataLabels: { hideOverflowingLabels: true }
-                        } 
+                        bar: { horizontal: true, distributed: true, barHeight: '80%' } 
                     },
-                    xaxis: { 
-                        type: 'datetime',
-                        labels: { datetimeUTC: true } 
-                    },
-                    yaxis: {
-                        title: { text: 'Line Name' },
-                        labels: { minWidth: 100 }
-                    },
-                    grid: { borderColor: '#333' },
-                    tooltip: { theme: 'dark', x: { format: 'MMM dd, HH:mm' } },
+                    xaxis: xAxisConfig,
+                    grid: { borderColor: '#444' },
+                    tooltip: { theme: 'dark', x: { format: 'HH:mm' } },
                     legend: { show: false }
                 };
                 myChart = new ApexCharts(document.querySelector("#chart_container"), options);
@@ -111,10 +115,8 @@
             }
         }
 
-        // 4. Initial Load
         fetchWaterLevels();
-
-        // 5. THE FILTER LISTENER: Checks for Dashboard URL changes every 0.5 seconds
+        // Check for dashboard-driven URL changes every 500ms
         setInterval(fetchWaterLevels, 500);
     </script>
 </body>
