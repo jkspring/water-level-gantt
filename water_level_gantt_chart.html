@@ -5,18 +5,18 @@
     <title>Water Level Windows Gantt (Standalone App)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
-        /* 1. Bulletproof layout constraints */
+        /* Bulletproof layout constraints */
         html, body { 
             margin: 0; padding: 0; 
-            width: 100vw; height: 100vh; /* Strictly viewport dimensions */
-            overflow: hidden; /* Stops the whole page from scrolling */
+            width: 100vw; height: 100vh; 
+            overflow: hidden; 
             background-color: #1a1a1a; 
             font-family: 'Segoe UI', Tahoma, Arial, sans-serif; 
             display: flex;
             flex-direction: column;
         }
         
-        /* 2. UI Bar: Takes exactly the space it needs */
+        /* UI Bar */
         #ui_controls {
             flex: 0 0 auto; 
             display: flex;
@@ -51,7 +51,22 @@
 
         #ui_controls button:hover { background-color: #0076d1; }
 
-        /* 3. The Wrapper Trick: Forces the chart to NEVER push past the screen */
+        /* The Date Rocker Group */
+        .date-rocker {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .date-rocker button {
+            padding: 8px 10px;
+            font-size: 12px;
+            background-color: #444; 
+        }
+        
+        .date-rocker button:hover { background-color: #555; }
+
+        /* Chart Wrapper */
         #chart_wrapper {
             flex: 1 1 auto; 
             position: relative;
@@ -71,7 +86,13 @@
         <select id="filter-source"><option value="">All Sources</option></select>
         <select id="filter-datum"><option value="">All Datums</option></select>
         <select id="filter-line"><option value="">All Lines</option></select>
-        <input type="date" id="filter-date_">
+        
+        <div class="date-rocker">
+            <button onclick="adjustDate(-1)" title="Previous Day">&#9664;</button>
+            <input type="date" id="filter-date_">
+            <button onclick="adjustDate(1)" title="Next Day">&#9654;</button>
+        </div>
+
         <button onclick="resetFilters()">Reset Filters</button>
     </div>
 
@@ -86,7 +107,6 @@
         let myChart;
         let lastUrl = ""; 
 
-        // Helper to get Today's Date in YYYY-MM-DD format
         function getTodayString() {
             const today = new Date();
             const yyyy = today.getFullYear();
@@ -95,7 +115,29 @@
             return `${yyyy}-${mm}-${dd}`;
         }
 
-        // --- Populate Dropdowns and Handle Defaults ---
+        // --- Rocker Logic ---
+        function adjustDate(daysToMove) {
+            const dateInput = document.getElementById('filter-date_');
+            if (!dateInput.value) return;
+
+            const parts = dateInput.value.split('-');
+            const currentDate = new Date(parts[0], parts[1] - 1, parts[2]);
+            
+            currentDate.setDate(currentDate.getDate() + daysToMove);
+            
+            const yyyy = currentDate.getFullYear();
+            const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(currentDate.getDate()).padStart(2, '0');
+            const newDateStr = `${yyyy}-${mm}-${dd}`;
+            
+            dateInput.value = newDateStr;
+            const url = new URL(window.location);
+            url.searchParams.set('date_', newDateStr);
+            window.history.pushState({}, '', url);
+            
+            fetchWaterLevels();
+        }
+
         async function buildUI() {
             const fields = ['project', 'source', 'datum', 'line_name'];
             
@@ -129,19 +171,35 @@
                 } catch (e) { console.error(`Failed to load ${field} options:`, e); }
             }
 
-            // DEFAULT DATE LOGIC
             const url = new URL(window.location);
+            let urlChanged = false;
+
+            // DEFAULT DATE LOGIC
             let currentDateParam = url.searchParams.get('date_');
-            
-            // If there's no date in the URL, force today's date
             if (!currentDateParam || currentDateParam === "null") {
                 currentDateParam = getTodayString();
                 url.searchParams.set('date_', currentDateParam);
-                // Update URL quietly without reloading the page
+                urlChanged = true;
+            }
+
+            // DEFAULT PROJECT LOGIC (Pulls the first project from the populated dropdown)
+            let currentProjectParam = url.searchParams.get('project');
+            if (!currentProjectParam || currentProjectParam === "null") {
+                const projectDropdown = document.getElementById('filter-project');
+                // .options[0] is "All Projects", .options[1] is the first dynamically loaded project
+                if (projectDropdown && projectDropdown.options.length > 1) {
+                    currentProjectParam = projectDropdown.options[1].value;
+                    url.searchParams.set('project', currentProjectParam);
+                    urlChanged = true;
+                }
+            }
+
+            // Silently update the URL if defaults were applied
+            if (urlChanged) {
                 window.history.replaceState({}, '', url); 
             }
 
-            // Set UI elements to match URL values
+            // Match UI to the current (or defaulted) URL parameters
             ['project', 'source', 'datum', 'line', 'date_'].forEach(param => {
                 const val = url.searchParams.get(param);
                 if (val && val !== "null") {
@@ -150,7 +208,7 @@
                 }
             });
 
-            // UI Listeners
+            // Listeners for UI changes
             document.querySelectorAll('#ui_controls select, #ui_controls input').forEach(el => {
                 el.addEventListener('change', (e) => {
                     const currentUrl = new URL(window.location);
@@ -168,16 +226,25 @@
             });
         }
 
-        // --- Reset Button Logic ---
+        // --- UPDATED RESET LOGIC: Defaults to Date & Project ---
         function resetFilters() {
-            const todayStr = getTodayString();
             const url = new URL(window.location.origin + window.location.pathname);
-            // Re-apply today's date on reset
+            const todayStr = getTodayString();
+            
             url.searchParams.set('date_', todayStr);
+            
+            let firstProj = "";
+            const projectDropdown = document.getElementById('filter-project');
+            if (projectDropdown && projectDropdown.options.length > 1) {
+                firstProj = projectDropdown.options[1].value;
+                url.searchParams.set('project', firstProj);
+            }
+            
             window.history.pushState({}, '', url);
 
-            // Reset UI
+            // Clear UI elements, then re-apply the two defaults
             document.querySelectorAll('#ui_controls select').forEach(s => s.value = '');
+            if (firstProj) projectDropdown.value = firstProj;
             document.getElementById('filter-date_').value = todayStr;
             
             fetchWaterLevels();
@@ -219,6 +286,7 @@
                 }
             });
 
+            // FIXED: new URLSearchParams (typo corrected)
             const params = new URLSearchParams({
                 where: sqlWhere,
                 outFields: "project,line_name,start,end_,datum,source", 
