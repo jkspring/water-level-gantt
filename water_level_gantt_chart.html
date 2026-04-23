@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Water Level Windows Gantt (Local Time)</title>
+    <title>Water Level Windows Gantt (JS Color Override)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         html, body { 
@@ -30,98 +30,130 @@
 
             const urlParams = new URLSearchParams(currentUrl);
             let sqlWhere = "1=1";
-            const filters = ['project', 'datum', 'line_name', 'date_', 'line'];
+            const filters = ['project', 'datum', 'line_name', 'date_', 'line', 'source'];
             
             filters.forEach(key => {
                 const val = urlParams.get(key);
                 if (val && val !== "" && val !== "null") {
-                    if (key === 'line') {
-                        sqlWhere += ` AND line_name = '${val}'`;
-                    } else {
-                        sqlWhere += ` AND ${key} = '${val}'`;
-                    }
+                    sqlWhere += ` AND ${key === 'line' ? 'line_name' : key} = '${val}'`;
                 }
             });
 
             const params = new URLSearchParams({
                 where: sqlWhere,
-                outFields: "line_name,start,end_", 
-                returnGeometry: "false",
-                f: "json",
-                token: apiKey
+                outFields: "project,line_name,start,end_,datum,source", 
+                returnGeometry: "false", f: "json", token: apiKey
             });
 
             try {
                 const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
                 const data = await response.json();
-                if (data.features) {
-                    processAndDraw(data.features, urlParams.get('date_'));
+                if (data.features) processAndDraw(data.features, urlParams.get('date_'));
+            } catch (error) { console.error("Fetch failed:", error); }
+        }
+
+        // --- THE JAVASCRIPT COLOR PAINTER ---
+        function colorizeYAxisText() {
+            const labels = document.querySelectorAll('.apexcharts-yaxis-label');
+            labels.forEach(label => {
+                const text = label.textContent || "";
+                let targetColor = "";
+                
+                if (text.includes('PYDRO')) targetColor = '#eb97d8';
+                else if (text.includes('STOFS')) targetColor = '#80ecf0';
+                
+                if (targetColor) {
+                    // Force the color onto the main text element and all multiline tspans
+                    label.setAttribute('fill', targetColor);
+                    label.style.fill = targetColor;
+                    label.querySelectorAll('tspan').forEach(t => {
+                        t.setAttribute('fill', targetColor);
+                        t.style.fill = targetColor;
+                    });
                 }
-            } catch (error) {
-                console.error("Fetch failed:", error);
-            }
+            });
         }
 
         function processAndDraw(features, selectedDate) {
+            const datumColors = { 'MHW': '#00E396', 'MLLW': '#FEB019', 'BMHW': '#008FFB' };
+
             const chartData = features.map(f => {
                 const a = f.attributes;
-                // JavaScript Date constructor will convert the UTC millisecond timestamp 
-                // from ArcGIS into the browser's local time automatically.
+                const sName = (a.source || 'STOFS').toUpperCase();
+                const dType = (a.datum || 'N/A').toUpperCase();
+                
                 return {
-                    x: a.line_name || "Unknown",
-                    y: [new Date(a.start).getTime(), new Date(a.end_).getTime()]
+                    x: [a.line_name, `(${sName})`, dType], 
+                    y: [new Date(a.start).getTime(), new Date(a.end_).getTime()],
+                    fillColor: datumColors[dType] || '#775DD0',
+                    project: a.project || "N/A",
+                    datum: dType,
+                    source: sName,
+                    originalLine: a.line_name
                 };
             }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
 
-            let xAxisConfig = { 
-                type: 'datetime',
-                labels: { 
-                    datetimeUTC: false // CRITICAL: This tells the chart to use local browser time
-                } 
-            };
+            chartData.sort((a, b) => {
+                if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
+                if (a.source !== b.source) return a.source.localeCompare(b.source);
+                return a.datum.localeCompare(b.datum);
+            });
 
+            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: false } };
             if (selectedDate && selectedDate !== "null") {
-                // Parse the selected date and set limits based on LOCAL midnight to midnight
                 const parts = selectedDate.split('-');
-                const localStart = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0);
-                const localEnd = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
-
-                xAxisConfig.min = localStart.getTime();
-                xAxisConfig.max = localEnd.getTime();
+                xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
+                xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
             }
 
+            const options = {
+                series: [{ data: chartData }],
+                chart: { 
+                    type: 'rangeBar', 
+                    height: '100%', 
+                    foreColor: '#ccc', 
+                    toolbar: { show: false },
+                    // THIS IS WHERE THE MAGIC HAPPENS
+                    events: {
+                        mounted: function() { colorizeYAxisText(); },
+                        updated: function() { colorizeYAxisText(); }
+                    }
+                },
+                plotOptions: { bar: { horizontal: true, barHeight: '85%' } },
+                xaxis: xAxisConfig,
+                yaxis: {
+                    labels: {
+                        style: { fontSize: '10px', fontWeight: 400 }
+                    }
+                },
+                grid: { borderColor: '#333' },
+                tooltip: { 
+                    theme: 'dark', 
+                    custom: function({ series, seriesIndex, dataPointIndex, w }) {
+                        const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
+                        const sTime = new Date(d.y[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        const eTime = new Date(d.y[1]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
+                        return `<div style="padding: 10px; background: #222; border: 1px solid ${d.fillColor}; color: #fff;">` +
+                            `<span><b style="color:${sCol}">Source: ${d.source}</b></span><br>` +
+                            `<span><b>Project:</b> ${d.project}</span><br>` +
+                            `<span><b>Line:</b> ${d.originalLine}</span><br>` +
+                            `<span><b>Datum:</b> ${d.datum}</span><br>` +
+                            `<span><b>Local Time:</b> ${sTime} - ${eTime}</span></div>`;
+                    }
+                }
+            };
+
             if (myChart) {
-                myChart.updateOptions({
-                    series: [{ data: chartData }],
-                    xaxis: xAxisConfig
-                });
+                myChart.updateOptions(options);
             } else {
-                const options = {
-                    series: [{ data: chartData }],
-                    chart: { 
-                        type: 'rangeBar', 
-                        height: '100%', 
-                        foreColor: '#ccc',
-                        toolbar: { show: false }
-                    },
-                    plotOptions: { 
-                        bar: { horizontal: true, distributed: true, barHeight: '80%' } 
-                    },
-                    xaxis: xAxisConfig,
-                    grid: { borderColor: '#444' },
-                    tooltip: { 
-                        theme: 'dark', 
-                        x: { format: 'HH:mm (local)' } 
-                    },
-                    legend: { show: false }
-                };
                 myChart = new ApexCharts(document.querySelector("#chart_container"), options);
                 myChart.render();
             }
         }
 
         fetchWaterLevels();
-        setInterval(fetchWaterLevels, 500);
+        setInterval(fetchWaterLevels, 1000); 
     </script>
 </body>
 </html>
