@@ -115,7 +115,6 @@
             return `${yyyy}-${mm}-${dd}`;
         }
 
-        // --- Rocker Logic ---
         function adjustDate(daysToMove) {
             const dateInput = document.getElementById('filter-date_');
             if (!dateInput.value) return;
@@ -174,7 +173,6 @@
             const url = new URL(window.location);
             let urlChanged = false;
 
-            // DEFAULT DATE LOGIC
             let currentDateParam = url.searchParams.get('date_');
             if (!currentDateParam || currentDateParam === "null") {
                 currentDateParam = getTodayString();
@@ -182,11 +180,9 @@
                 urlChanged = true;
             }
 
-            // DEFAULT PROJECT LOGIC (Pulls the first project from the populated dropdown)
             let currentProjectParam = url.searchParams.get('project');
             if (!currentProjectParam || currentProjectParam === "null") {
                 const projectDropdown = document.getElementById('filter-project');
-                // .options[0] is "All Projects", .options[1] is the first dynamically loaded project
                 if (projectDropdown && projectDropdown.options.length > 1) {
                     currentProjectParam = projectDropdown.options[1].value;
                     url.searchParams.set('project', currentProjectParam);
@@ -194,12 +190,10 @@
                 }
             }
 
-            // Silently update the URL if defaults were applied
             if (urlChanged) {
                 window.history.replaceState({}, '', url); 
             }
 
-            // Match UI to the current (or defaulted) URL parameters
             ['project', 'source', 'datum', 'line', 'date_'].forEach(param => {
                 const val = url.searchParams.get(param);
                 if (val && val !== "null") {
@@ -208,7 +202,6 @@
                 }
             });
 
-            // Listeners for UI changes
             document.querySelectorAll('#ui_controls select, #ui_controls input').forEach(el => {
                 el.addEventListener('change', (e) => {
                     const currentUrl = new URL(window.location);
@@ -226,7 +219,6 @@
             });
         }
 
-        // --- UPDATED RESET LOGIC: Defaults to Date & Project ---
         function resetFilters() {
             const url = new URL(window.location.origin + window.location.pathname);
             const todayStr = getTodayString();
@@ -242,7 +234,6 @@
             
             window.history.pushState({}, '', url);
 
-            // Clear UI elements, then re-apply the two defaults
             document.querySelectorAll('#ui_controls select').forEach(s => s.value = '');
             if (firstProj) projectDropdown.value = firstProj;
             document.getElementById('filter-date_').value = todayStr;
@@ -286,7 +277,6 @@
                 }
             });
 
-            // FIXED: new URLSearchParams (typo corrected)
             const params = new URLSearchParams({
                 where: sqlWhere,
                 outFields: "project,line_name,start,end_,datum,source", 
@@ -325,7 +315,11 @@
                 return a.datum.localeCompare(b.datum);
             });
 
-            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: false } };
+            let xAxisConfig = { 
+                type: 'datetime', 
+                labels: { datetimeUTC: false },
+                tickAmount: 24 
+            };
             if (selectedDate && selectedDate !== "null") {
                 const parts = selectedDate.split('-');
                 xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
@@ -349,15 +343,44 @@
                 yaxis: {
                     labels: { style: { fontSize: '10px', fontWeight: 400 }, formatter: function(val) { return val; } }
                 },
-                grid: { borderColor: '#333' },
+                // NEW: Added current time annotation line
+                annotations: {
+                    xaxis: [
+                        {
+                            x: new Date().getTime(),
+                            strokeDashArray: 0,
+                            borderColor: '#FF4560',
+                            borderWidth: 2,
+                            label: {
+                                style: {
+                                    color: '#fff',
+                                    background: '#FF4560',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    padding: { left: 5, right: 5, top: 2, bottom: 2 }
+                                },
+                                text: 'NOW',
+                                offsetY: 0
+                            }
+                        }
+                    ]
+                },
+                grid: { 
+                    borderColor: '#444', 
+                    strokeDashArray: 4, 
+                    xaxis: { lines: { show: true } },
+                    yaxis: { lines: { show: true } }
+                },
                 tooltip: { 
                     theme: 'dark', 
+                    followCursor: false, 
                     custom: function({ series, seriesIndex, dataPointIndex, w }) {
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
                         const sTime = new Date(d.y[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                         const eTime = new Date(d.y[1]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                         const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
-                        return `<div style="padding: 10px; background: #222; border: 1px solid ${d.fillColor}; color: #fff;">` +
+                        
+                        return `<div style="padding: 8px; background: #222; border: 1px solid ${d.fillColor}; color: #fff; font-size: 11px; line-height: 1.4;">` +
                             `<span><b style="color:${sCol}">Source: ${d.source}</b></span><br>` +
                             `<span><b>Project:</b> ${d.project}</span><br>` +
                             `<span><b>Line:</b> ${d.originalLine}</span><br>` +
