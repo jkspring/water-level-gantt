@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Water Level Windows Gantt (Pro Interactive)</title>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <style>
+        /* Bulletproof layout constraints */
+        html, body { 
+            margin: 0; padding: 0; 
+            width: 100vw; height: 100vh; 
+            overflow: hidden; 
+            background-color: #1a1a1a; 
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif; 
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* UI Bar */
+        #ui_controls {
+            flex: 0 0 auto; 
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 15px;
+            background-color: #222;
+            border-bottom: 1px solid #444;
+            align-items: center;
+            z-index: 20;
+        }
+        
+        #ui_controls select, #ui_controls input[type="date"], #ui_controls button {
+            background-color: #333; color: #fff; border: 1px solid #555;
+            padding: 8px 12px; border-radius: 4px; font-family: inherit;
+            font-size: 14px; outline: none; height: 36px; box-sizing: border-box;
+        }
+
+        #ui_controls select:hover, #ui_controls input:hover { border-color: #777; }
+
+        #ui_controls button {
+            background-color: #008FFB; border: none; cursor: pointer;
+            font-weight: 600; transition: background 0.2s;
+        }
+        #ui_controls button:hover { background-color: #0076d1; }
+
+        /* Custom Multi-Select */
+        .custom-select-wrapper { position: relative; width: 200px; user-select: none; }
+        .custom-select-box {
+            background-color: #333; color: #fff; border: 1px solid #555;
+            padding: 0 12px; border-radius: 4px; font-size: 13px; height: 36px;
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; box-sizing: border-box;
+        }
+        .custom-select-box:hover { border-color: #777; }
+        .custom-select-options {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background-color: #333; border: 1px solid #555; border-top: none;
+            border-radius: 0 0 4px 4px; max-height: 300px; overflow-y: auto;
+            z-index: 100; display: none; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        .custom-select-options.open { display: block; }
+        .custom-select-options label {
+            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            cursor: pointer; font-size: 13px; color: #ddd; transition: background 0.1s;
+        }
+        .custom-select-options label:hover { background-color: #444; color: #fff; }
+        .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+        /* The Rocker (Date, Line, & Run) */
+        .rocker-group { display: flex; align-items: center; gap: 5px; }
+        .rocker-group button { padding: 0 10px; font-size: 12px; background-color: #444; height: 36px; }
+        .rocker-group button:hover { background-color: #555; }
+        
+        /* Synoptic Toggle */
+        .synoptic-toggle {
+            display: flex; align-items: center; gap: 6px; color: #fff; 
+            font-size: 13px; cursor: pointer; user-select: none;
+            background-color: #333; padding: 0 12px; height: 36px;
+            border: 1px solid #555; border-radius: 4px;
+        }
+        .synoptic-toggle:hover { border-color: #777; }
+        .synoptic-toggle input { margin: 0; cursor: pointer; width: 15px; height: 15px; }
+
+        /* --- 3-TIER CHART ARCHITECTURE --- */
+        #top_axis_wrapper {
+            flex: 0 0 45px; width: 100%; background-color: #1a1a1a;
+            border-bottom: 1px solid #444; z-index: 10;
+            overflow-y: scroll; overflow-x: hidden; 
+        }
+        #chart_wrapper {
+            flex: 1 1 auto; width: 100%; background-color: #1a1a1a;
+            overflow-y: auto; overflow-x: hidden; position: relative;
+        }
+        #bottom_axis_wrapper {
+            flex: 0 0 45px; width: 100%; background-color: #1a1a1a;
+            border-top: 1px solid #444; z-index: 10;
+            overflow-y: scroll; overflow-x: hidden; 
+        }
+        
+        #chart_container { width: 100%; }
+        
+        /* Dark Mode Scrollbars */
+        ::-webkit-scrollbar { width: 14px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; border-left: 1px solid #333; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 7px; border: 3px solid #1a1a1a; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        #top_axis_wrapper::-webkit-scrollbar-thumb, #bottom_axis_wrapper::-webkit-scrollbar-thumb { background: transparent; border: none; }
+        #top_axis_wrapper::-webkit-scrollbar-track, #bottom_axis_wrapper::-webkit-scrollbar-track { border-left: transparent; }
+
+    </style>
+</head>
+<body>
+    
+    <div id="ui_controls">
+        <div class="custom-select-wrapper" id="project-dropdown-wrapper">
+            <div class="custom-select-box" onclick="toggleDropdown('filter-project-options')">
+                <span id="project-select-text" style="color: #fff;">Loading...</span> <span style="font-size: 10px;">▼</span>
+            </div>
+            <div class="custom-select-options" id="filter-project-options"></div>
+        </div>
+
+        <select id="filter-source"><option value="">All Sources</option></select>
+        <select id="filter-datum"><option value="">All Datums</option></select>
+
+        <div class="rocker-group">
+            <button onclick="adjustRun(-1)" title="Newer Run Date">&#9664;</button>
+            <select id="filter-run"><option value="">All Run Dates</option></select>
+            <button onclick="adjustRun(1)" title="Older Run Date">&#9654;</button>
+        </div>
+
+        <div class="rocker-group">
+            <button onclick="adjustLine(-1)" title="Previous Line">&#9664;</button>
+            <div class="custom-select-wrapper" id="line-dropdown-wrapper">
+                <div class="custom-select-box" onclick="toggleDropdown('filter-line-options')">
+                    <span id="line-select-text">All Lines</span> <span style="font-size: 10px;">▼</span>
+                </div>
+                <div class="custom-select-options" id="filter-line-options"></div>
+            </div>
+            <button onclick="adjustLine(1)" title="Next Line">&#9654;</button>
+        </div>
+        
+        <div class="rocker-group">
+            <button onclick="adjustDate(-1)" title="Previous Day">&#9664;</button>
+            <input type="date" id="filter-date_">
+            <button onclick="adjustDate(1)" title="Next Day">&#9654;</button>
+        </div>
+        
+        <label class="synoptic-toggle" title="Only show the Pydro run closest to 00Z, 06Z, 12Z, and 18Z">
+            <input type="checkbox" id="filter-pydro-synoptic" checked>
+            Synoptic Pydro Runs Only
+        </label>
+
+        <button onclick="resetFilters()">Reset Filters</button>
+    </div>
+
+    <div id="top_axis_wrapper"><div id="top_axis_container"></div></div>
+    <div id="chart_wrapper"><div id="chart_container"></div></div>
+    <div id="bottom_axis_wrapper"><div id="bottom_axis_container"></div></div>
+
+    <script type="text/javascript">
+        const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/rsd_water_level_pred_past/FeatureServer/0/query";
+        const apiKey = "AAPTaNsiBCvYe3bQCi9AC9I2_4g..8GrNys8e90CtRvf6r1uaJiGEKAz3_NSqYjaKBOLFQMs3LJ436tQFPU21xwr77EdKMpgjbCMNUubnKailSR4oZ5HtgE4PLLa7iDzwDi5s1MJrKDSQawVNrLBfs6NSmfkhqfrQdKQXsw9ca3xmJ8KJDzGv5e5o76P9HBw1Xng3HIfOWsW9LwuG3l6ZDdpNhRlOHxi7EzRkWzamjQ7nUHADuXuwJ5NnoSREyY9AwbK13oGPD4smNx1bPGQYxhgcZj9QPxZhq6AtAT1_YUBrVuie"; 
+        
+        let mainChart, topChart, bottomChart;
+        let lastUrl = ""; 
+        let currentFeatures = []; // Cache features to allow fast toggling
+
+        function toggleDropdown(id) { document.getElementById(id).classList.toggle('open'); }
+
+        document.addEventListener('click', function(event) {
+            document.querySelectorAll('.custom-select-wrapper').forEach(wrapper => {
+                if (!wrapper.contains(event.target)) wrapper.querySelector('.custom-select-options').classList.remove('open');
+            });
+        });
+
+        function updateMultiSelectText(paramName, defaultText) {
+            const checkedBoxes = document.querySelectorAll(`.${paramName}-checkbox:checked`);
+            const textElement = document.getElementById(`${paramName}-select-text`);
+            if (checkedBoxes.length === 0) textElement.innerText = defaultText;
+            else if (checkedBoxes.length === 1) textElement.innerText = checkedBoxes[0].value;
+            else textElement.innerText = `${checkedBoxes.length} Selected`;
+        }
+
+        async function handleMultiSelectChange(paramName) {
+            updateMultiSelectText(paramName, paramName === 'project' ? 'All Projects' : 'All Lines');
+            const checkedBoxes = document.querySelectorAll(`.${paramName}-checkbox:checked`);
+            const selectedVals = Array.from(checkedBoxes).map(cb => cb.value);
+            
+            const currentUrl = new URL(window.location);
+            if (selectedVals.length > 0) currentUrl.searchParams.set(paramName, selectedVals.join(','));
+            else currentUrl.searchParams.delete(paramName);
+            
+            window.history.pushState({}, '', currentUrl);
+            if (paramName === 'project') await updateDependentDropdowns();
+            fetchWaterLevels();
+        }
+
+        // Line Rocker Function
+        function adjustLine(direction) {
+            const checkboxes = Array.from(document.querySelectorAll('.line-checkbox'));
+            if (checkboxes.length === 0) return; 
+
+            let currentIndex = checkboxes.findIndex(cb => cb.checked);
+            
+            let newIndex;
+            if (currentIndex === -1) {
+                newIndex = direction > 0 ? 0 : checkboxes.length - 1;
+            } else {
+                newIndex = currentIndex + direction;
+                if (newIndex < 0) newIndex = checkboxes.length - 1;
+                if (newIndex >= checkboxes.length) newIndex = 0;
+            }
+
+            checkboxes.forEach(cb => cb.checked = false);
+            checkboxes[newIndex].checked = true;
+
+            handleMultiSelectChange('line');
+        }
+
+        // Run Rocker Function
+        function adjustRun(direction) {
+            const selectEl = document.getElementById('filter-run');
+            if (selectEl.options.length <= 1) return;
+
+            let currentIndex = selectEl.selectedIndex;
+            let newIndex = currentIndex + direction;
+
+            if (newIndex < 0) newIndex = selectEl.options.length - 1;
+            if (newIndex >= selectEl.options.length) newIndex = 0;
+
+            selectEl.selectedIndex = newIndex;
+            
+            const currentUrl = new URL(window.location);
+            if (selectEl.value) {
+                currentUrl.searchParams.set('run', selectEl.value); 
+            } else {
+                currentUrl.searchParams.delete('run'); 
+            }
+            window.history.pushState({}, '', currentUrl);
+            fetchWaterLevels(); 
+        }
+
+        function getTodayString() {
+            const today = new Date();
+            return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        }
+
+        function adjustDate(daysToMove) {
+            const dateInput = document.getElementById('filter-date_');
+            if (!dateInput.value) return;
+            const parts = dateInput.value.split('-');
+            const currentDate = new Date(parts[0], parts[1] - 1, parts[2]);
+            currentDate.setDate(currentDate.getDate() + daysToMove);
+            const newDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+            dateInput.value = newDateStr;
+            const url = new URL(window.location);
+            url.searchParams.set('date_', newDateStr);
+            window.history.pushState({}, '', url);
+            fetchWaterLevels();
+        }
+
+        async function loadOptions(field, dependsOnProjects = false) {
+            let sqlWhere = "1=1";
+            if (dependsOnProjects) {
+                const projs = new URLSearchParams(window.location.search).get('project');
+                if (projs && projs !== "null") {
+                    const projArray = projs.split(',').map(p => `'${p}'`).join(',');
+                    sqlWhere += ` AND project IN (${projArray})`;
+                }
+            }
+            const params = new URLSearchParams({ where: sqlWhere, outFields: field, returnDistinctValues: "true", returnGeometry: "false", f: "json", token: apiKey });
+            try {
+                const res = await fetch(`${featureServiceUrl}?${params.toString()}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    console.error(`ArcGIS Error loading options for '${field}':`, data.error);
+                    if (field === 'project') {
+                        const projText = document.getElementById('project-select-text');
+                        projText.innerText = "API Error (Check Console)";
+                        projText.style.color = "#FF4560";
+                    }
+                    return;
+                }
+
+                if (data.features) {
+                    let uniqueVals = [];
+                    
+                    if (field === 'run') {
+                        uniqueVals = [...new Set(data.features.map(f => {
+                            const runVal = f.attributes[field];
+                            return runVal ? runVal.substring(0, 10) : null;
+                        }).filter(v => v))].sort();
+                        uniqueVals.reverse(); // Newest dates at the top
+                    } else {
+                        uniqueVals = [...new Set(data.features.map(f => f.attributes[field]).filter(v => v))].sort();
+                    }
+
+                    if (field === 'project' || field === 'line_name') {
+                        const paramName = field === 'line_name' ? 'line' : 'project';
+                        const container = document.getElementById(`filter-${paramName}-options`);
+                        container.innerHTML = '';
+                        uniqueVals.forEach(val => {
+                            const lbl = document.createElement('label');
+                            lbl.innerHTML = `<input type="checkbox" value="${val}" class="${paramName}-checkbox"> ${val}`;
+                            lbl.querySelector('input').addEventListener('change', () => handleMultiSelectChange(paramName));
+                            container.appendChild(lbl);
+                        });
+                        const urlVal = new URL(window.location).searchParams.get(paramName);
+                        if (urlVal) {
+                            const arr = urlVal.split(',');
+                            document.querySelectorAll(`.${paramName}-checkbox`).forEach(cb => cb.checked = arr.includes(cb.value));
+                        }
+                        updateMultiSelectText(paramName, field === 'project' ? 'All Projects' : 'All Lines');
+                    } else {
+                        const selectEl = document.getElementById(`filter-${field}`);
+                        if (selectEl) {
+                            const currentVal = selectEl.value; 
+                            while (selectEl.options.length > 1) selectEl.remove(1);
+                            
+                            uniqueVals.forEach(val => {
+                                const opt = document.createElement('option');
+                                opt.value = val; opt.textContent = val;
+                                selectEl.appendChild(opt);
+                            });
+                            if (currentVal && uniqueVals.includes(currentVal)) selectEl.value = currentVal;
+                            else { selectEl.value = ""; const url = new URL(window.location); url.searchParams.delete(field); window.history.replaceState({}, '', url); }
+                        }
+                    }
+                }
+            } catch (e) { console.error(`Failed to load ${field}:`, e); }
+        }
+
+        async function updateDependentDropdowns() { 
+            await Promise.all([ 
+                loadOptions('source', true), 
+                loadOptions('datum', true), 
+                loadOptions('run', true), 
+                loadOptions('line_name', true) 
+            ]); 
+        }
+
+        async function buildUI() {
+            await loadOptions('project', false);
+            const url = new URL(window.location);
+            let urlChanged = false;
+
+            let currentDateParam = url.searchParams.get('date_');
+            if (!currentDateParam || currentDateParam === "null") {
+                currentDateParam = getTodayString();
+                url.searchParams.set('date_', currentDateParam);
+                urlChanged = true;
+            }
+            document.getElementById('filter-date_').value = currentDateParam;
+
+            let currentProjectParam = url.searchParams.get('project');
+            if (!currentProjectParam || currentProjectParam === "null") {
+                const firstBox = document.querySelector('.project-checkbox');
+                if (firstBox) {
+                    currentProjectParam = firstBox.value;
+                    url.searchParams.set('project', currentProjectParam);
+                    urlChanged = true;
+                    firstBox.checked = true;
+                }
+            }
+
+            if (urlChanged) window.history.replaceState({}, '', url); 
+            
+            const projText = document.getElementById('project-select-text').innerText;
+            if (!projText.includes("Error")) {
+                updateMultiSelectText('project', 'All Projects');
+            }
+
+            ['source', 'datum', 'run'].forEach(param => {
+                const val = url.searchParams.get(param);
+                if (val && val !== "null") {
+                    const el = document.getElementById(`filter-${param}`);
+                    if (el) el.value = val;
+                }
+            });
+
+            await updateDependentDropdowns();
+
+            document.querySelectorAll('#filter-source, #filter-datum, #filter-run, #filter-date_').forEach(el => {
+                el.addEventListener('change', async (e) => {
+                    const currentUrl = new URL(window.location);
+                    const paramName = e.target.id.replace('filter-', '');
+                    if (e.target.value) currentUrl.searchParams.set(paramName, e.target.value); 
+                    else currentUrl.searchParams.delete(paramName); 
+                    window.history.pushState({}, '', currentUrl);
+                    fetchWaterLevels(); 
+                });
+            });
+
+            // Fast re-render when synoptic checkbox is toggled
+            document.getElementById('filter-pydro-synoptic').addEventListener('change', () => {
+                if (currentFeatures.length > 0) {
+                    processAndDraw(currentFeatures, document.getElementById('filter-date_').value);
+                }
+            });
+
+            fetchWaterLevels(); 
+        }
+
+        function resetFilters() {
+            const url = new URL(window.location.origin + window.location.pathname);
+            const todayStr = getTodayString();
+            url.searchParams.set('date_', todayStr);
+            
+            let firstProj = "";
+            const projCheckboxes = document.querySelectorAll('.project-checkbox');
+            if (projCheckboxes.length > 0) {
+                firstProj = projCheckboxes[0].value;
+                url.searchParams.set('project', firstProj);
+            }
+            window.history.pushState({}, '', url);
+
+            document.getElementById('filter-source').value = '';
+            document.getElementById('filter-datum').value = '';
+            document.getElementById('filter-run').value = '';
+            document.getElementById('filter-date_').value = todayStr;
+            
+            projCheckboxes.forEach((cb, i) => cb.checked = (i === 0));
+            document.querySelectorAll('.line-checkbox').forEach(cb => cb.checked = false);
+            
+            const projText = document.getElementById('project-select-text').innerText;
+            if (!projText.includes("Error")) {
+                updateMultiSelectText('project', 'All Projects');
+            }
+            updateMultiSelectText('line', 'All Lines');
+            
+            updateDependentDropdowns().then(() => fetchWaterLevels());
+        }
+
+        function colorizeYAxisText() {
+            const labels = document.querySelectorAll('#chart_container .apexcharts-yaxis-label');
+            labels.forEach(label => {
+                label.querySelectorAll('tspan').forEach(t => {
+                    const text = t.textContent || "";
+                    if (text.includes('PYDRO')) {
+                        t.setAttribute('fill', '#eb97d8'); 
+                        t.style.fill = '#eb97d8';
+                        t.style.fontWeight = 'bold';
+                    } else if (text.includes('STOFS')) {
+                        t.setAttribute('fill', '#80ecf0'); 
+                        t.style.fill = '#80ecf0';
+                        t.style.fontWeight = 'bold';
+                    } else if (text.includes('Run:')) {
+                        t.setAttribute('fill', '#aaaaaa'); 
+                        t.style.fill = '#aaaaaa';
+                        t.style.fontWeight = 'normal';
+                    } else if (text.includes('Line:')) {
+                        t.setAttribute('fill', '#e0e0e0'); 
+                        t.style.fill = '#e0e0e0';
+                        t.style.fontWeight = 'normal';
+                    } else {
+                        t.setAttribute('fill', '#ffffff'); 
+                        t.style.fill = '#ffffff';
+                        t.style.fontWeight = 'bold';
+                    }
+                });
+            });
+        }
+
+        async function fetchWaterLevels() {
+            const currentUrl = window.location.search;
+            if (currentUrl === lastUrl && mainChart) return;
+            lastUrl = currentUrl;
+
+            const urlParams = new URLSearchParams(currentUrl);
+            let sqlWhere = "1=1";
+            const filters = ['project', 'datum', 'line_name', 'date_', 'line', 'source', 'run'];
+            
+            filters.forEach(key => {
+                const val = urlParams.get(key);
+                if (val && val !== "" && val !== "null") {
+                    if (key === 'project') {
+                        const arr = val.split(',').map(p => `'${p}'`).join(',');
+                        sqlWhere += ` AND project IN (${arr})`;
+                    } else if (key === 'line') {
+                        const arr = val.split(',').map(l => `'${l}'`).join(',');
+                        sqlWhere += ` AND line_name IN (${arr})`;
+                    } else if (key === 'run') {
+                        sqlWhere += ` AND run LIKE '${val}%'`;
+                    } else {
+                        sqlWhere += ` AND ${key} = '${val}'`;
+                    }
+                }
+            });
+
+            const params = new URLSearchParams({ where: sqlWhere, outFields: "project,line_name,start,end_,datum,source,run,date_", returnGeometry: "false", f: "json", token: apiKey });
+
+            try {
+                const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error("ArcGIS Error fetching chart data:", data.error);
+                    return; 
+                }
+
+                if (data.features) {
+                    currentFeatures = data.features;
+                    processAndDraw(currentFeatures, urlParams.get('date_'));
+                }
+            } catch (error) { console.error("Fetch failed:", error); }
+        }
+
+        function processAndDraw(features, selectedDate) {
+            
+            let displayFeatures = [...features];
+
+            // --- NEW: Filter Pydro to closest synoptic times ---
+            const synopticCheckbox = document.getElementById('filter-pydro-synoptic');
+            if (synopticCheckbox && synopticCheckbox.checked) {
+                const validPydroRuns = new Set();
+                
+                // Get all unique Pydro run timestamps
+                const pydroRuns = [...new Set(displayFeatures.filter(f => (f.attributes.source || '').toUpperCase() === 'PYDRO').map(f => f.attributes.run))];
+                const pydroRunTimes = pydroRuns.map(r => ({ run: r, time: new Date(r).getTime() }));
+                
+                // Extract unique dates present in the current dataset to establish targets
+                const uniqueDates = [...new Set(displayFeatures.map(f => {
+                    let d = f.attributes.date_;
+                    if (!d && f.attributes.run) d = f.attributes.run.split('T')[0];
+                    return d;
+                }).filter(v => v))];
+                
+                // For each day, create 4 target times and map the closest Pydro run
+                uniqueDates.forEach(dateStr => {
+                    const targets = [0, 6, 12, 18].map(h => new Date(`${dateStr}T${String(h).padStart(2, '0')}:00:00Z`).getTime());
+                    
+                    targets.forEach(targetTime => {
+                        let closestRun = null;
+                        let minDiff = Infinity;
+                        
+                        pydroRunTimes.forEach(p => {
+                            const diff = Math.abs(p.time - targetTime);
+                            // Cap at 4 hours to avoid incorrectly snapping a distant run
+                            if (diff < minDiff && diff <= 4 * 60 * 60 * 1000) { 
+                                minDiff = diff;
+                                closestRun = p.run;
+                            }
+                        });
+                        if (closestRun) validPydroRuns.add(closestRun);
+                    });
+                });
+                
+                // Remove non-synoptic Pydro runs
+                displayFeatures = displayFeatures.filter(f => {
+                    if ((f.attributes.source || '').toUpperCase() !== 'PYDRO') return true;
+                    return validPydroRuns.has(f.attributes.run);
+                });
+            }
+
+            const datumColors = { 
+                'MLLW': '#FF4F60', 
+                'MHW':  '#00B5F7', 
+                'BMHW': '#FFAB00'  
+            };
+
+            const chartData = displayFeatures.map(f => {
+                const a = f.attributes;
+                const sName = (a.source || 'STOFS').toUpperCase();
+                const dType = (a.datum || 'N/A').toUpperCase();
+                const projName = a.project || "Unknown Project";
+                const rawRun = a.run || "N/A";
+                
+                let localRunTime = rawRun;
+                if (a.run) {
+                    const runD = new Date(a.run);
+                    if (!isNaN(runD.getTime())) {
+                        const yr = runD.getFullYear();
+                        const mo = String(runD.getMonth() + 1).padStart(2, '0');
+                        const da = String(runD.getDate()).padStart(2, '0');
+                        const hr = String(runD.getHours()).padStart(2, '0');
+                        const mi = String(runD.getMinutes()).padStart(2, '0');
+                        localRunTime = `${yr}-${mo}-${da} ${hr}:${mi}`;
+                    }
+                }
+                
+                return {
+                    x: [
+                        projName, 
+                        `Run: ${localRunTime}`, 
+                        `Line: ${a.line_name}`, 
+                        `${sName} | ${dType}`
+                    ], 
+                    y: [new Date(a.start).getTime(), new Date(a.end_).getTime()],
+                    fillColor: datumColors[dType] || '#775DD0',
+                    project: projName, 
+                    datum: dType, 
+                    source: sName, 
+                    originalLine: a.line_name, 
+                    run: localRunTime,
+                    rawRun: rawRun
+                };
+            }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
+
+            chartData.sort((a, b) => {
+                if (a.project !== b.project) return a.project.localeCompare(b.project);
+                if (a.rawRun !== b.rawRun) return b.rawRun.localeCompare(a.rawRun); 
+                if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
+                if (a.source !== b.source) return a.source.localeCompare(b.source);
+                return a.datum.localeCompare(b.datum);
+            });
+
+            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: false }, tickAmount: 24 };
+            if (selectedDate && selectedDate !== "null") {
+                const parts = selectedDate.split('-');
+                xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
+                xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
+            }
+
+            const uniqueRows = new Set(chartData.map(d => d.x.join('|'))).size;
+            const baseRowHeight = 70; 
+            let calculatedHeight = (uniqueRows * baseRowHeight) + 40; 
+            
+            const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
+            if (calculatedHeight < wrapperHeight) calculatedHeight = wrapperHeight;
+
+            document.getElementById('chart_container').style.height = calculatedHeight + 'px';
+
+            const commonYAxis = { labels: { minWidth: 200, maxWidth: 300 } };
+
+            const nowTime = new Date().getTime();
+            const nowAnnotationLine = { x: nowTime, strokeDashArray: 0, borderColor: '#FF4560', borderWidth: 2 };
+            const nowAnnotationLabel = {
+                ...nowAnnotationLine,
+                label: { style: { color: '#fff', background: '#FF4560', fontSize: '11px', fontWeight: 600, padding: { left: 5, right: 5 } }, text: 'NOW', offsetY: 0 }
+            };
+
+            const topOptions = {
+                series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
+                chart: { type: 'rangeBar', height: 60, group: 'sync-gantt', id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
+                plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
+                xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
+                annotations: { xaxis: [ nowAnnotationLabel ] },
+                grid: { show: false, padding: { left: 0, right: 30, top: 0, bottom: -20 } },
+                tooltip: { enabled: false }
+            };
+
+            const bottomOptions = {
+                series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
+                chart: { type: 'rangeBar', height: 50, group: 'sync-gantt', id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
+                plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
+                xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
+                annotations: { xaxis: [ nowAnnotationLine ] },
+                grid: { show: false, padding: { left: 0, right: 30, top: -20, bottom: 0 } },
+                tooltip: { enabled: false }
+            };
+
+            const mainOptions = {
+                series: [{ data: chartData }],
+                chart: { 
+                    type: 'rangeBar', height: calculatedHeight, group: 'sync-gantt', id: 'main-chart',
+                    toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
+                    events: { mounted: function() { colorizeYAxisText(); }, updated: function() { colorizeYAxisText(); } }
+                },
+                plotOptions: { bar: { horizontal: true, barHeight: '40%' } }, 
+                
+                dataLabels: {
+                    enabled: true,
+                    formatter: function(val, opts) {
+                        const d = opts.w.globals.initialSeries[opts.seriesIndex].data[opts.dataPointIndex];
+                        const startD = new Date(d.y[0]);
+                        const endD = new Date(d.y[1]);
+                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
+                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
+                        return `${sTime} - ${eTime}`;
+                    },
+                    style: { fontSize: '11px', fontWeight: 700, colors: ['#111'] },
+                    dropShadow: { enabled: false }
+                },
+
+                xaxis: { ...xAxisConfig, labels: { show: false }, tooltip: { enabled: false } },
+                yaxis: { labels: { ...commonYAxis.labels, style: { fontSize: '10px', fontWeight: 400 }, formatter: function(val) { return val; } } },
+                annotations: { xaxis: [ nowAnnotationLine ] },
+                grid: { borderColor: '#444', strokeDashArray: 4, xaxis: { lines: { show: true } }, yaxis: { lines: { show: true } }, padding: { left: 0, right: 30 } },
+                
+                tooltip: { 
+                    theme: 'dark', 
+                    followCursor: true, 
+                    custom: function({ series, seriesIndex, dataPointIndex, w }) {
+                        const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
+                        const startD = new Date(d.y[0]);
+                        const endD = new Date(d.y[1]);
+                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
+                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
+                        const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
+                        
+                        return `<div style="padding: 8px; background: #222; border: 1px solid ${d.fillColor}; color: #fff; font-size: 11px; line-height: 1.4;">` +
+                            `<span><b style="color:${sCol}">Source: ${d.source}</b></span><br>` +
+                            `<span><b>Model Run:</b> ${d.run}</span><br>` +
+                            `<span><b>Project:</b> ${d.project}</span><br>` +
+                            `<span><b>Line:</b> ${d.originalLine}</span><br>` +
+                            `<span><b>Datum:</b> ${d.datum}</span><br>` +
+                            `<span><b>Local Time:</b> ${sTime} - ${eTime}</span></div>`;
+                    }
+                }
+            };
+
+            if (mainChart) { mainChart.destroy(); }
+            if (topChart) { topChart.destroy(); }
+            if (bottomChart) { bottomChart.destroy(); }
+
+            topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions); topChart.render();
+            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions); mainChart.render();
+            bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions); bottomChart.render();
+        }
+
+        buildUI();
+    </script>
+</body>
+</html>
