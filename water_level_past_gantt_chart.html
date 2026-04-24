@@ -71,15 +71,15 @@
         .rocker-group button { padding: 0 10px; font-size: 12px; background-color: #444; height: 36px; }
         .rocker-group button:hover { background-color: #555; }
         
-        /* Synoptic Toggle */
-        .synoptic-toggle {
+        /* Checkbox Toggles */
+        .checkbox-toggle {
             display: flex; align-items: center; gap: 6px; color: #fff; 
             font-size: 13px; cursor: pointer; user-select: none;
             background-color: #333; padding: 0 12px; height: 36px;
             border: 1px solid #555; border-radius: 4px;
         }
-        .synoptic-toggle:hover { border-color: #777; }
-        .synoptic-toggle input { margin: 0; cursor: pointer; width: 15px; height: 15px; }
+        .checkbox-toggle:hover { border-color: #777; }
+        .checkbox-toggle input { margin: 0; cursor: pointer; width: 15px; height: 15px; }
 
         /* --- 3-TIER CHART ARCHITECTURE --- */
         #top_axis_wrapper {
@@ -145,9 +145,14 @@
             <button onclick="adjustDate(1)" title="Next Day">&#9654;</button>
         </div>
         
-        <label class="synoptic-toggle" title="Only show the Pydro run closest to 00Z, 06Z, 12Z, and 18Z">
+        <label class="checkbox-toggle" title="Only show the Pydro run closest to 00Z, 06Z, 12Z, and 18Z">
             <input type="checkbox" id="filter-pydro-synoptic" checked>
             Synoptic Pydro Runs Only
+        </label>
+        
+        <label class="checkbox-toggle" title="Toggle between UTC and your computer's Local Time">
+            <input type="checkbox" id="filter-time-utc">
+            Show in UTC
         </label>
 
         <button onclick="resetFilters()">Reset Filters</button>
@@ -163,7 +168,7 @@
         
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
-        let currentFeatures = []; // Cache features to allow fast toggling
+        let currentFeatures = []; 
 
         function toggleDropdown(id) { document.getElementById(id).classList.toggle('open'); }
 
@@ -195,7 +200,6 @@
             fetchWaterLevels();
         }
 
-        // Line Rocker Function
         function adjustLine(direction) {
             const checkboxes = Array.from(document.querySelectorAll('.line-checkbox'));
             if (checkboxes.length === 0) return; 
@@ -217,10 +221,9 @@
             handleMultiSelectChange('line');
         }
 
-        // Run Rocker Function
         function adjustRun(direction) {
             const selectEl = document.getElementById('filter-run');
-            if (selectEl.options.length <= 1) return;
+            if (selectEl.options.length <= 1) return; 
 
             let currentIndex = selectEl.selectedIndex;
             let newIndex = currentIndex + direction;
@@ -291,7 +294,7 @@
                             const runVal = f.attributes[field];
                             return runVal ? runVal.substring(0, 10) : null;
                         }).filter(v => v))].sort();
-                        uniqueVals.reverse(); // Newest dates at the top
+                        uniqueVals.reverse(); 
                     } else {
                         uniqueVals = [...new Set(data.features.map(f => f.attributes[field]).filter(v => v))].sort();
                     }
@@ -392,11 +395,12 @@
                 });
             });
 
-            // Fast re-render when synoptic checkbox is toggled
+            // Fast re-render when synoptic OR time toggle checkboxes are changed
             document.getElementById('filter-pydro-synoptic').addEventListener('change', () => {
-                if (currentFeatures.length > 0) {
-                    processAndDraw(currentFeatures, document.getElementById('filter-date_').value);
-                }
+                if (currentFeatures.length > 0) processAndDraw(currentFeatures, document.getElementById('filter-date_').value);
+            });
+            document.getElementById('filter-time-utc').addEventListener('change', () => {
+                if (currentFeatures.length > 0) processAndDraw(currentFeatures, document.getElementById('filter-date_').value);
             });
 
             fetchWaterLevels(); 
@@ -508,25 +512,25 @@
 
         function processAndDraw(features, selectedDate) {
             
+            // Grab current state of the UTC toggle
+            const useUTC = document.getElementById('filter-time-utc') ? document.getElementById('filter-time-utc').checked : false;
+            
             let displayFeatures = [...features];
 
-            // --- NEW: Filter Pydro to closest synoptic times ---
+            // Filter Pydro to closest synoptic times
             const synopticCheckbox = document.getElementById('filter-pydro-synoptic');
             if (synopticCheckbox && synopticCheckbox.checked) {
                 const validPydroRuns = new Set();
                 
-                // Get all unique Pydro run timestamps
                 const pydroRuns = [...new Set(displayFeatures.filter(f => (f.attributes.source || '').toUpperCase() === 'PYDRO').map(f => f.attributes.run))];
                 const pydroRunTimes = pydroRuns.map(r => ({ run: r, time: new Date(r).getTime() }));
                 
-                // Extract unique dates present in the current dataset to establish targets
                 const uniqueDates = [...new Set(displayFeatures.map(f => {
                     let d = f.attributes.date_;
                     if (!d && f.attributes.run) d = f.attributes.run.split('T')[0];
                     return d;
                 }).filter(v => v))];
                 
-                // For each day, create 4 target times and map the closest Pydro run
                 uniqueDates.forEach(dateStr => {
                     const targets = [0, 6, 12, 18].map(h => new Date(`${dateStr}T${String(h).padStart(2, '0')}:00:00Z`).getTime());
                     
@@ -536,7 +540,6 @@
                         
                         pydroRunTimes.forEach(p => {
                             const diff = Math.abs(p.time - targetTime);
-                            // Cap at 4 hours to avoid incorrectly snapping a distant run
                             if (diff < minDiff && diff <= 4 * 60 * 60 * 1000) { 
                                 minDiff = diff;
                                 closestRun = p.run;
@@ -546,7 +549,6 @@
                     });
                 });
                 
-                // Remove non-synoptic Pydro runs
                 displayFeatures = displayFeatures.filter(f => {
                     if ((f.attributes.source || '').toUpperCase() !== 'PYDRO') return true;
                     return validPydroRuns.has(f.attributes.run);
@@ -566,23 +568,25 @@
                 const projName = a.project || "Unknown Project";
                 const rawRun = a.run || "N/A";
                 
-                let localRunTime = rawRun;
+                // Formats Run Time to either UTC or Local depending on toggle
+                let displayRunTime = rawRun;
                 if (a.run) {
                     const runD = new Date(a.run);
                     if (!isNaN(runD.getTime())) {
-                        const yr = runD.getFullYear();
-                        const mo = String(runD.getMonth() + 1).padStart(2, '0');
-                        const da = String(runD.getDate()).padStart(2, '0');
-                        const hr = String(runD.getHours()).padStart(2, '0');
-                        const mi = String(runD.getMinutes()).padStart(2, '0');
-                        localRunTime = `${yr}-${mo}-${da} ${hr}:${mi}`;
+                        const yr = useUTC ? runD.getUTCFullYear() : runD.getFullYear();
+                        const mo = String((useUTC ? runD.getUTCMonth() : runD.getMonth()) + 1).padStart(2, '0');
+                        const da = String(useUTC ? runD.getUTCDate() : runD.getDate()).padStart(2, '0');
+                        const hr = String(useUTC ? runD.getUTCHours() : runD.getHours()).padStart(2, '0');
+                        const mi = String(useUTC ? runD.getUTCMinutes() : runD.getMinutes()).padStart(2, '0');
+                        const tz = useUTC ? "UTC" : "Local";
+                        displayRunTime = `${yr}-${mo}-${da} ${hr}:${mi} ${tz}`;
                     }
                 }
                 
                 return {
                     x: [
                         projName, 
-                        `Run: ${localRunTime}`, 
+                        `Run: ${displayRunTime}`, 
                         `Line: ${a.line_name}`, 
                         `${sName} | ${dType}`
                     ], 
@@ -592,7 +596,7 @@
                     datum: dType, 
                     source: sName, 
                     originalLine: a.line_name, 
-                    run: localRunTime,
+                    run: displayRunTime,
                     rawRun: rawRun
                 };
             }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
@@ -605,11 +609,17 @@
                 return a.datum.localeCompare(b.datum);
             });
 
-            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: false }, tickAmount: 24 };
+            // Adjust min and max of X-axis based on time zone toggle
+            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: useUTC }, tickAmount: 24 };
             if (selectedDate && selectedDate !== "null") {
                 const parts = selectedDate.split('-');
-                xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
-                xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
+                if (useUTC) {
+                    xAxisConfig.min = Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0);
+                    xAxisConfig.max = Date.UTC(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
+                } else {
+                    xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
+                    xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
+                }
             }
 
             const uniqueRows = new Set(chartData.map(d => d.x.join('|'))).size;
@@ -634,7 +644,7 @@
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
                 chart: { type: 'rangeBar', height: 60, group: 'sync-gantt', id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
-                xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: useUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
                 annotations: { xaxis: [ nowAnnotationLabel ] },
                 grid: { show: false, padding: { left: 0, right: 30, top: 0, bottom: -20 } },
@@ -645,11 +655,19 @@
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
                 chart: { type: 'rangeBar', height: 50, group: 'sync-gantt', id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
-                xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: useUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
                 annotations: { xaxis: [ nowAnnotationLine ] },
                 grid: { show: false, padding: { left: 0, right: 30, top: -20, bottom: 0 } },
                 tooltip: { enabled: false }
+            };
+
+            // Helper to format hours consistently
+            const formatTimeStr = (timestamp) => {
+                const d = new Date(timestamp);
+                const h = useUTC ? d.getUTCHours() : d.getHours();
+                const m = useUTC ? d.getUTCMinutes() : d.getMinutes();
+                return String(h).padStart(2, '0') + String(m).padStart(2, '0');
             };
 
             const mainOptions = {
@@ -665,10 +683,8 @@
                     enabled: true,
                     formatter: function(val, opts) {
                         const d = opts.w.globals.initialSeries[opts.seriesIndex].data[opts.dataPointIndex];
-                        const startD = new Date(d.y[0]);
-                        const endD = new Date(d.y[1]);
-                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
-                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
+                        const sTime = formatTimeStr(d.y[0]);
+                        const eTime = formatTimeStr(d.y[1]);
                         return `${sTime} - ${eTime}`;
                     },
                     style: { fontSize: '11px', fontWeight: 700, colors: ['#111'] },
@@ -685,11 +701,10 @@
                     followCursor: true, 
                     custom: function({ series, seriesIndex, dataPointIndex, w }) {
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
-                        const startD = new Date(d.y[0]);
-                        const endD = new Date(d.y[1]);
-                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
-                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
+                        const sTime = formatTimeStr(d.y[0]);
+                        const eTime = formatTimeStr(d.y[1]);
                         const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
+                        const timeZoneLbl = useUTC ? 'UTC' : 'Local Time';
                         
                         return `<div style="padding: 8px; background: #222; border: 1px solid ${d.fillColor}; color: #fff; font-size: 11px; line-height: 1.4;">` +
                             `<span><b style="color:${sCol}">Source: ${d.source}</b></span><br>` +
@@ -697,7 +712,7 @@
                             `<span><b>Project:</b> ${d.project}</span><br>` +
                             `<span><b>Line:</b> ${d.originalLine}</span><br>` +
                             `<span><b>Datum:</b> ${d.datum}</span><br>` +
-                            `<span><b>Local Time:</b> ${sTime} - ${eTime}</span></div>`;
+                            `<span><b>${timeZoneLbl}:</b> ${sTime} - ${eTime}</span></div>`;
                     }
                 }
             };
