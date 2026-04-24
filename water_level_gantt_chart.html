@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Water Level Windows Gantt (Standalone App)</title>
+    <title>Water Level Windows Gantt (Pro Interactive)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         /* Bulletproof layout constraints */
@@ -26,66 +26,98 @@
             background-color: #222;
             border-bottom: 1px solid #444;
             align-items: center;
+            z-index: 20;
         }
         
-        #ui_controls select, #ui_controls input, #ui_controls button {
-            background-color: #333;
-            color: #fff;
-            border: 1px solid #555;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-family: inherit;
-            font-size: 14px;
-            outline: none;
+        #ui_controls select, #ui_controls input[type="date"], #ui_controls button {
+            background-color: #333; color: #fff; border: 1px solid #555;
+            padding: 8px 12px; border-radius: 4px; font-family: inherit;
+            font-size: 14px; outline: none; height: 36px; box-sizing: border-box;
         }
 
         #ui_controls select:hover, #ui_controls input:hover { border-color: #777; }
 
         #ui_controls button {
-            background-color: #008FFB;
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
-            transition: background 0.2s;
+            background-color: #008FFB; border: none; cursor: pointer;
+            font-weight: 600; transition: background 0.2s;
         }
-
         #ui_controls button:hover { background-color: #0076d1; }
 
-        /* The Date Rocker Group */
-        .date-rocker {
-            display: flex;
-            align-items: center;
-            gap: 5px;
+        /* Custom Multi-Select */
+        .custom-select-wrapper { position: relative; width: 200px; user-select: none; }
+        .custom-select-box {
+            background-color: #333; color: #fff; border: 1px solid #555;
+            padding: 0 12px; border-radius: 4px; font-size: 13px; height: 36px;
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; box-sizing: border-box;
         }
-        
-        .date-rocker button {
-            padding: 8px 10px;
-            font-size: 12px;
-            background-color: #444; 
+        .custom-select-box:hover { border-color: #777; }
+        .custom-select-options {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background-color: #333; border: 1px solid #555; border-top: none;
+            border-radius: 0 0 4px 4px; max-height: 300px; overflow-y: auto;
+            z-index: 100; display: none; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
         }
-        
+        .custom-select-options.open { display: block; }
+        .custom-select-options label {
+            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            cursor: pointer; font-size: 13px; color: #ddd; transition: background 0.1s;
+        }
+        .custom-select-options label:hover { background-color: #444; color: #fff; }
+        .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+        /* The Date Rocker */
+        .date-rocker { display: flex; align-items: center; gap: 5px; }
+        .date-rocker button { padding: 0 10px; font-size: 12px; background-color: #444; height: 36px; }
         .date-rocker button:hover { background-color: #555; }
 
-        /* Chart Wrapper */
+        /* --- 3-TIER CHART ARCHITECTURE --- */
+        #top_axis_wrapper {
+            flex: 0 0 45px; width: 100%; background-color: #1a1a1a;
+            border-bottom: 1px solid #444; z-index: 10;
+            overflow-y: scroll; overflow-x: hidden; 
+        }
         #chart_wrapper {
-            flex: 1 1 auto; 
-            position: relative;
-            width: 100%;
+            flex: 1 1 auto; width: 100%; background-color: #1a1a1a;
+            overflow-y: auto; overflow-x: hidden; position: relative;
         }
+        #bottom_axis_wrapper {
+            flex: 0 0 45px; width: 100%; background-color: #1a1a1a;
+            border-top: 1px solid #444; z-index: 10;
+            overflow-y: scroll; overflow-x: hidden; 
+        }
+        
+        #chart_container { width: 100%; }
+        
+        /* Dark Mode Scrollbars */
+        ::-webkit-scrollbar { width: 14px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; border-left: 1px solid #333; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 7px; border: 3px solid #1a1a1a; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        #top_axis_wrapper::-webkit-scrollbar-thumb, #bottom_axis_wrapper::-webkit-scrollbar-thumb { background: transparent; border: none; }
+        #top_axis_wrapper::-webkit-scrollbar-track, #bottom_axis_wrapper::-webkit-scrollbar-track { border-left: transparent; }
 
-        #chart_container { 
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-        }
     </style>
 </head>
 <body>
     
     <div id="ui_controls">
-        <select id="filter-project"><option value="">All Projects</option></select>
+        <div class="custom-select-wrapper" id="project-dropdown-wrapper">
+            <div class="custom-select-box" onclick="toggleDropdown('filter-project-options')">
+                <span id="project-select-text">Loading...</span> <span style="font-size: 10px;">▼</span>
+            </div>
+            <div class="custom-select-options" id="filter-project-options"></div>
+        </div>
+
         <select id="filter-source"><option value="">All Sources</option></select>
         <select id="filter-datum"><option value="">All Datums</option></select>
-        <select id="filter-line"><option value="">All Lines</option></select>
+
+        <div class="custom-select-wrapper" id="line-dropdown-wrapper">
+            <div class="custom-select-box" onclick="toggleDropdown('filter-line-options')">
+                <span id="line-select-text">All Lines</span> <span style="font-size: 10px;">▼</span>
+            </div>
+            <div class="custom-select-options" id="filter-line-options"></div>
+        </div>
         
         <div class="date-rocker">
             <button onclick="adjustDate(-1)" title="Previous Day">&#9664;</button>
@@ -96,80 +128,119 @@
         <button onclick="resetFilters()">Reset Filters</button>
     </div>
 
-    <div id="chart_wrapper">
-        <div id="chart_container"></div>
-    </div>
+    <div id="top_axis_wrapper"><div id="top_axis_container"></div></div>
+    <div id="chart_wrapper"><div id="chart_container"></div></div>
+    <div id="bottom_axis_wrapper"><div id="bottom_axis_container"></div></div>
 
     <script type="text/javascript">
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/stofs_pred_utc/FeatureServer/0/query";
         const apiKey = "AAPTaH7OehDzKeYnCi_rxWuBJ0g..o1c0X6U0lqnbVVsF1hYhbFRQABeJbAleNkr1OEtiDLyGANPbe3XgyDCFF0wEKOz5f2GC__2Ff7YO972xlf5oshHeayTI7okMi2Ns0uJtjZ3YEF4dcGuH1GFkW4WjEf3uq94T7W2FyUePpmTH9oZO2oHzdwLB1PyBtWxGtAy8fb881ta7ch2-I7OJnMOXHEPN02w_TdzswKlcwjNAiJcpbRcFNFaVqkkFGf3xsrE710w8l3L5LSEW594ssQv4tMNvy9EtDsx18g..AT2_eCzFENFL"; 
         
-        let myChart;
+        let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
+
+        function toggleDropdown(id) { document.getElementById(id).classList.toggle('open'); }
+
+        document.addEventListener('click', function(event) {
+            document.querySelectorAll('.custom-select-wrapper').forEach(wrapper => {
+                if (!wrapper.contains(event.target)) wrapper.querySelector('.custom-select-options').classList.remove('open');
+            });
+        });
+
+        function updateMultiSelectText(paramName, defaultText) {
+            const checkedBoxes = document.querySelectorAll(`.${paramName}-checkbox:checked`);
+            const textElement = document.getElementById(`${paramName}-select-text`);
+            if (checkedBoxes.length === 0) textElement.innerText = defaultText;
+            else if (checkedBoxes.length === 1) textElement.innerText = checkedBoxes[0].value;
+            else textElement.innerText = `${checkedBoxes.length} Selected`;
+        }
+
+        async function handleMultiSelectChange(paramName) {
+            updateMultiSelectText(paramName, paramName === 'project' ? 'All Projects' : 'All Lines');
+            const checkedBoxes = document.querySelectorAll(`.${paramName}-checkbox:checked`);
+            const selectedVals = Array.from(checkedBoxes).map(cb => cb.value);
+            
+            const currentUrl = new URL(window.location);
+            if (selectedVals.length > 0) currentUrl.searchParams.set(paramName, selectedVals.join(','));
+            else currentUrl.searchParams.delete(paramName);
+            
+            window.history.pushState({}, '', currentUrl);
+            if (paramName === 'project') await updateDependentDropdowns();
+            fetchWaterLevels();
+        }
 
         function getTodayString() {
             const today = new Date();
-            const yyyy = today.getFullYear();
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const dd = String(today.getDate()).padStart(2, '0');
-            return `${yyyy}-${mm}-${dd}`;
+            return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         }
 
         function adjustDate(daysToMove) {
             const dateInput = document.getElementById('filter-date_');
             if (!dateInput.value) return;
-
             const parts = dateInput.value.split('-');
             const currentDate = new Date(parts[0], parts[1] - 1, parts[2]);
-            
             currentDate.setDate(currentDate.getDate() + daysToMove);
-            
-            const yyyy = currentDate.getFullYear();
-            const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
-            const dd = String(currentDate.getDate()).padStart(2, '0');
-            const newDateStr = `${yyyy}-${mm}-${dd}`;
-            
+            const newDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
             dateInput.value = newDateStr;
             const url = new URL(window.location);
             url.searchParams.set('date_', newDateStr);
             window.history.pushState({}, '', url);
-            
             fetchWaterLevels();
         }
 
-        async function buildUI() {
-            const fields = ['project', 'source', 'datum', 'line_name'];
-            
-            for (let field of fields) {
-                const params = new URLSearchParams({
-                    where: "1=1",
-                    outFields: field,
-                    returnDistinctValues: "true",
-                    returnGeometry: "false",
-                    f: "json",
-                    token: apiKey
-                });
-
-                try {
-                    const res = await fetch(`${featureServiceUrl}?${params.toString()}`);
-                    const data = await res.json();
-                    if (data.features) {
-                        const uniqueVals = [...new Set(data.features.map(f => f.attributes[field]).filter(v => v))].sort();
-                        const selectId = field === 'line_name' ? 'filter-line' : `filter-${field}`;
-                        const selectEl = document.getElementById(selectId);
-                        
-                        if(selectEl) {
+        async function loadOptions(field, dependsOnProjects = false) {
+            let sqlWhere = "1=1";
+            if (dependsOnProjects) {
+                const projs = new URLSearchParams(window.location.search).get('project');
+                if (projs && projs !== "null") {
+                    const projArray = projs.split(',').map(p => `'${p}'`).join(',');
+                    sqlWhere += ` AND project IN (${projArray})`;
+                }
+            }
+            const params = new URLSearchParams({ where: sqlWhere, outFields: field, returnDistinctValues: "true", returnGeometry: "false", f: "json", token: apiKey });
+            try {
+                const res = await fetch(`${featureServiceUrl}?${params.toString()}`);
+                const data = await res.json();
+                if (data.features) {
+                    const uniqueVals = [...new Set(data.features.map(f => f.attributes[field]).filter(v => v))].sort();
+                    if (field === 'project' || field === 'line_name') {
+                        const paramName = field === 'line_name' ? 'line' : 'project';
+                        const container = document.getElementById(`filter-${paramName}-options`);
+                        container.innerHTML = '';
+                        uniqueVals.forEach(val => {
+                            const lbl = document.createElement('label');
+                            lbl.innerHTML = `<input type="checkbox" value="${val}" class="${paramName}-checkbox"> ${val}`;
+                            lbl.querySelector('input').addEventListener('change', () => handleMultiSelectChange(paramName));
+                            container.appendChild(lbl);
+                        });
+                        const urlVal = new URL(window.location).searchParams.get(paramName);
+                        if (urlVal) {
+                            const arr = urlVal.split(',');
+                            document.querySelectorAll(`.${paramName}-checkbox`).forEach(cb => cb.checked = arr.includes(cb.value));
+                        }
+                        updateMultiSelectText(paramName, field === 'project' ? 'All Projects' : 'All Lines');
+                    } else {
+                        const selectEl = document.getElementById(`filter-${field}`);
+                        if (selectEl) {
+                            const currentVal = selectEl.value; 
+                            while (selectEl.options.length > 1) selectEl.remove(1);
                             uniqueVals.forEach(val => {
                                 const opt = document.createElement('option');
-                                opt.value = val;
-                                opt.textContent = val;
+                                opt.value = val; opt.textContent = val;
                                 selectEl.appendChild(opt);
                             });
+                            if (currentVal && uniqueVals.includes(currentVal)) selectEl.value = currentVal;
+                            else { selectEl.value = ""; const url = new URL(window.location); url.searchParams.delete(field); window.history.replaceState({}, '', url); }
                         }
                     }
-                } catch (e) { console.error(`Failed to load ${field} options:`, e); }
-            }
+                }
+            } catch (e) { console.error(`Failed to load ${field}:`, e); }
+        }
 
+        async function updateDependentDropdowns() { await Promise.all([ loadOptions('source', true), loadOptions('datum', true), loadOptions('line_name', true) ]); }
+
+        async function buildUI() {
+            await loadOptions('project', false);
             const url = new URL(window.location);
             let urlChanged = false;
 
@@ -179,22 +250,23 @@
                 url.searchParams.set('date_', currentDateParam);
                 urlChanged = true;
             }
+            document.getElementById('filter-date_').value = currentDateParam;
 
             let currentProjectParam = url.searchParams.get('project');
             if (!currentProjectParam || currentProjectParam === "null") {
-                const projectDropdown = document.getElementById('filter-project');
-                if (projectDropdown && projectDropdown.options.length > 1) {
-                    currentProjectParam = projectDropdown.options[1].value;
+                const firstBox = document.querySelector('.project-checkbox');
+                if (firstBox) {
+                    currentProjectParam = firstBox.value;
                     url.searchParams.set('project', currentProjectParam);
                     urlChanged = true;
+                    firstBox.checked = true;
                 }
             }
 
-            if (urlChanged) {
-                window.history.replaceState({}, '', url); 
-            }
+            if (urlChanged) window.history.replaceState({}, '', url); 
+            updateMultiSelectText('project', 'All Projects');
 
-            ['project', 'source', 'datum', 'line', 'date_'].forEach(param => {
+            ['source', 'datum'].forEach(param => {
                 const val = url.searchParams.get(param);
                 if (val && val !== "null") {
                     const el = document.getElementById(`filter-${param}`);
@@ -202,68 +274,65 @@
                 }
             });
 
-            document.querySelectorAll('#ui_controls select, #ui_controls input').forEach(el => {
-                el.addEventListener('change', (e) => {
+            await updateDependentDropdowns();
+
+            document.querySelectorAll('#filter-source, #filter-datum, #filter-date_').forEach(el => {
+                el.addEventListener('change', async (e) => {
                     const currentUrl = new URL(window.location);
                     const paramName = e.target.id.replace('filter-', '');
-                    
-                    if (e.target.value) {
-                        currentUrl.searchParams.set(paramName, e.target.value);
-                    } else {
-                        currentUrl.searchParams.delete(paramName); 
-                    }
-                    
+                    if (e.target.value) currentUrl.searchParams.set(paramName, e.target.value); 
+                    else currentUrl.searchParams.delete(paramName); 
                     window.history.pushState({}, '', currentUrl);
                     fetchWaterLevels(); 
                 });
             });
+
+            fetchWaterLevels(); 
         }
 
         function resetFilters() {
             const url = new URL(window.location.origin + window.location.pathname);
             const todayStr = getTodayString();
-            
             url.searchParams.set('date_', todayStr);
             
             let firstProj = "";
-            const projectDropdown = document.getElementById('filter-project');
-            if (projectDropdown && projectDropdown.options.length > 1) {
-                firstProj = projectDropdown.options[1].value;
+            const projCheckboxes = document.querySelectorAll('.project-checkbox');
+            if (projCheckboxes.length > 0) {
+                firstProj = projCheckboxes[0].value;
                 url.searchParams.set('project', firstProj);
             }
-            
             window.history.pushState({}, '', url);
 
-            document.querySelectorAll('#ui_controls select').forEach(s => s.value = '');
-            if (firstProj) projectDropdown.value = firstProj;
+            document.getElementById('filter-source').value = '';
+            document.getElementById('filter-datum').value = '';
             document.getElementById('filter-date_').value = todayStr;
             
-            fetchWaterLevels();
+            projCheckboxes.forEach((cb, i) => cb.checked = (i === 0));
+            document.querySelectorAll('.line-checkbox').forEach(cb => cb.checked = false);
+            updateMultiSelectText('project', 'All Projects');
+            updateMultiSelectText('line', 'All Lines');
+            
+            updateDependentDropdowns().then(() => fetchWaterLevels());
         }
 
         function colorizeYAxisText() {
-            const labels = document.querySelectorAll('.apexcharts-yaxis-label');
+            const labels = document.querySelectorAll('#chart_container .apexcharts-yaxis-label');
             labels.forEach(label => {
                 const text = label.textContent || "";
                 let targetColor = "";
-                
                 if (text.includes('PYDRO')) targetColor = '#eb97d8';
                 else if (text.includes('STOFS')) targetColor = '#80ecf0';
                 
                 if (targetColor) {
-                    label.setAttribute('fill', targetColor);
-                    label.style.fill = targetColor;
-                    label.querySelectorAll('tspan').forEach(t => {
-                        t.setAttribute('fill', targetColor);
-                        t.style.fill = targetColor;
-                    });
+                    label.setAttribute('fill', targetColor); label.style.fill = targetColor;
+                    label.querySelectorAll('tspan').forEach(t => { t.setAttribute('fill', targetColor); t.style.fill = targetColor; });
                 }
             });
         }
 
         async function fetchWaterLevels() {
             const currentUrl = window.location.search;
-            if (currentUrl === lastUrl && myChart) return;
+            if (currentUrl === lastUrl && mainChart) return;
             lastUrl = currentUrl;
 
             const urlParams = new URLSearchParams(currentUrl);
@@ -273,15 +342,19 @@
             filters.forEach(key => {
                 const val = urlParams.get(key);
                 if (val && val !== "" && val !== "null") {
-                    sqlWhere += ` AND ${key === 'line' ? 'line_name' : key} = '${val}'`;
+                    if (key === 'project') {
+                        const arr = val.split(',').map(p => `'${p}'`).join(',');
+                        sqlWhere += ` AND project IN (${arr})`;
+                    } else if (key === 'line') {
+                        const arr = val.split(',').map(l => `'${l}'`).join(',');
+                        sqlWhere += ` AND line_name IN (${arr})`;
+                    } else {
+                        sqlWhere += ` AND ${key} = '${val}'`;
+                    }
                 }
             });
 
-            const params = new URLSearchParams({
-                where: sqlWhere,
-                outFields: "project,line_name,start,end_,datum,source", 
-                returnGeometry: "false", f: "json", token: apiKey
-            });
+            const params = new URLSearchParams({ where: sqlWhere, outFields: "project,line_name,start,end_,datum,source", returnGeometry: "false", f: "json", token: apiKey });
 
             try {
                 const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
@@ -291,93 +364,119 @@
         }
 
         function processAndDraw(features, selectedDate) {
-            const datumColors = { 'MHW': '#00E396', 'MLLW': '#FEB019', 'BMHW': '#008FFB' };
+            
+            // --- NEW: VIBRANT COLOR MAPPING ---
+            const datumColors = { 
+                'MLLW': '#FF4F60', // Vibrant Red
+                'MHW':  '#00B5F7', // Bright Blue
+                'BMHW': '#FFAB00'  // Rich Orange
+            };
 
             const chartData = features.map(f => {
                 const a = f.attributes;
                 const sName = (a.source || 'STOFS').toUpperCase();
                 const dType = (a.datum || 'N/A').toUpperCase();
+                const projName = a.project || "Unknown Project";
                 
                 return {
-                    x: [a.line_name, `(${sName})`, dType], 
+                    x: [`${projName}  ▶  ${a.line_name}`, `${sName}  |  ${dType}`], 
                     y: [new Date(a.start).getTime(), new Date(a.end_).getTime()],
                     fillColor: datumColors[dType] || '#775DD0',
-                    project: a.project || "N/A",
-                    datum: dType,
-                    source: sName,
-                    originalLine: a.line_name
+                    project: projName, datum: dType, source: sName, originalLine: a.line_name
                 };
             }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
 
             chartData.sort((a, b) => {
+                if (a.project !== b.project) return a.project.localeCompare(b.project);
                 if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
                 if (a.source !== b.source) return a.source.localeCompare(b.source);
                 return a.datum.localeCompare(b.datum);
             });
 
-            let xAxisConfig = { 
-                type: 'datetime', 
-                labels: { datetimeUTC: false },
-                tickAmount: 24 
-            };
+            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: false }, tickAmount: 24 };
             if (selectedDate && selectedDate !== "null") {
                 const parts = selectedDate.split('-');
                 xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
                 xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
             }
 
-            const options = {
+            const uniqueRows = new Set(chartData.map(d => d.x.join('|'))).size;
+            const baseRowHeight = 45; 
+            let calculatedHeight = (uniqueRows * baseRowHeight) + 40; 
+            
+            const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
+            if (calculatedHeight < wrapperHeight) calculatedHeight = wrapperHeight;
+
+            document.getElementById('chart_container').style.height = calculatedHeight + 'px';
+
+            const commonYAxis = { labels: { minWidth: 200, maxWidth: 200 } };
+
+            const nowTime = new Date().getTime();
+            const nowAnnotationLine = { x: nowTime, strokeDashArray: 0, borderColor: '#FF4560', borderWidth: 2 };
+            const nowAnnotationLabel = {
+                ...nowAnnotationLine,
+                label: { style: { color: '#fff', background: '#FF4560', fontSize: '11px', fontWeight: 600, padding: { left: 5, right: 5 } }, text: 'NOW', offsetY: 0 }
+            };
+
+            const topOptions = {
+                series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
+                chart: { type: 'rangeBar', height: 60, group: 'sync-gantt', id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
+                plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
+                xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
+                annotations: { xaxis: [ nowAnnotationLabel ] },
+                grid: { show: false, padding: { left: 0, right: 30, top: 0, bottom: -20 } },
+                tooltip: { enabled: false }
+            };
+
+            const bottomOptions = {
+                series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
+                chart: { type: 'rangeBar', height: 50, group: 'sync-gantt', id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
+                plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
+                xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
+                annotations: { xaxis: [ nowAnnotationLine ] },
+                grid: { show: false, padding: { left: 0, right: 30, top: -20, bottom: 0 } },
+                tooltip: { enabled: false }
+            };
+
+            const mainOptions = {
                 series: [{ data: chartData }],
                 chart: { 
-                    type: 'rangeBar', 
-                    height: '100%', 
-                    foreColor: '#ccc', 
-                    toolbar: { show: false },
-                    events: {
-                        mounted: function() { colorizeYAxisText(); },
-                        updated: function() { colorizeYAxisText(); }
-                    }
+                    type: 'rangeBar', height: calculatedHeight, group: 'sync-gantt', id: 'main-chart',
+                    toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
+                    events: { mounted: function() { colorizeYAxisText(); }, updated: function() { colorizeYAxisText(); } }
                 },
-                plotOptions: { bar: { horizontal: true, barHeight: '85%' } },
-                xaxis: xAxisConfig,
-                yaxis: {
-                    labels: { style: { fontSize: '10px', fontWeight: 400 }, formatter: function(val) { return val; } }
+                plotOptions: { bar: { horizontal: true, barHeight: '40%' } }, 
+                
+                dataLabels: {
+                    enabled: true,
+                    formatter: function(val, opts) {
+                        const d = opts.w.globals.initialSeries[opts.seriesIndex].data[opts.dataPointIndex];
+                        const startD = new Date(d.y[0]);
+                        const endD = new Date(d.y[1]);
+                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
+                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
+                        return `${sTime} - ${eTime}`;
+                    },
+                    style: { fontSize: '11px', fontWeight: 700, colors: ['#111'] },
+                    dropShadow: { enabled: false }
                 },
-                // NEW: Added current time annotation line
-                annotations: {
-                    xaxis: [
-                        {
-                            x: new Date().getTime(),
-                            strokeDashArray: 0,
-                            borderColor: '#FF4560',
-                            borderWidth: 2,
-                            label: {
-                                style: {
-                                    color: '#fff',
-                                    background: '#FF4560',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    padding: { left: 5, right: 5, top: 2, bottom: 2 }
-                                },
-                                text: 'NOW',
-                                offsetY: 0
-                            }
-                        }
-                    ]
-                },
-                grid: { 
-                    borderColor: '#444', 
-                    strokeDashArray: 4, 
-                    xaxis: { lines: { show: true } },
-                    yaxis: { lines: { show: true } }
-                },
+
+                xaxis: { ...xAxisConfig, labels: { show: false }, tooltip: { enabled: false } },
+                yaxis: { labels: { ...commonYAxis.labels, style: { fontSize: '10px', fontWeight: 400 }, formatter: function(val) { return val; } } },
+                annotations: { xaxis: [ nowAnnotationLine ] },
+                grid: { borderColor: '#444', strokeDashArray: 4, xaxis: { lines: { show: true } }, yaxis: { lines: { show: true } }, padding: { left: 0, right: 30 } },
+                
                 tooltip: { 
                     theme: 'dark', 
-                    followCursor: false, 
+                    followCursor: true, 
                     custom: function({ series, seriesIndex, dataPointIndex, w }) {
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
-                        const sTime = new Date(d.y[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                        const eTime = new Date(d.y[1]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        const startD = new Date(d.y[0]);
+                        const endD = new Date(d.y[1]);
+                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
+                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
                         const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
                         
                         return `<div style="padding: 8px; background: #222; border: 1px solid ${d.fillColor}; color: #fff; font-size: 11px; line-height: 1.4;">` +
@@ -390,17 +489,16 @@
                 }
             };
 
-            if (myChart) {
-                myChart.updateOptions(options);
-            } else {
-                myChart = new ApexCharts(document.querySelector("#chart_container"), options);
-                myChart.render();
-            }
+            if (mainChart) { mainChart.destroy(); }
+            if (topChart) { topChart.destroy(); }
+            if (bottomChart) { bottomChart.destroy(); }
+
+            topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions); topChart.render();
+            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions); mainChart.render();
+            bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions); bottomChart.render();
         }
 
         buildUI();
-        fetchWaterLevels();
-        setInterval(fetchWaterLevels, 1000); 
     </script>
 </body>
 </html>
