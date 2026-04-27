@@ -268,10 +268,21 @@
             }
             document.getElementById('filter-date_').value = currentDateParam;
 
-            // --- FIXED: Removed the "Force Default Project" logic. 
-            // If the dashboard doesn't pass a project, it stays blank (All Projects).
+            // --- THE FIX IS HERE ---
+            // Removed the logic that forces AK2104 to load! 
+            // It will now strictly read whatever the URL has.
+            let currentProjectParam = url.searchParams.get('project');
+            if (currentProjectParam && currentProjectParam !== "null") {
+                const projArray = currentProjectParam.split(',');
+                document.querySelectorAll('.project-checkbox').forEach(cb => {
+                    cb.checked = projArray.includes(cb.value);
+                });
+                updateMultiSelectText('project', 'All Projects');
+            } else {
+                updateMultiSelectText('project', 'All Projects');
+            }
+
             if (urlChanged) window.history.replaceState({}, '', url); 
-            updateMultiSelectText('project', 'All Projects');
 
             ['source', 'datum'].forEach(param => {
                 const val = url.searchParams.get(param);
