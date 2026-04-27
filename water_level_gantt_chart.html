@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Water Level Windows Gantt (Dashboard Embed)</title>
+    <title>Water Level Windows Gantt (Dashboard Ready)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         /* Bulletproof layout constraints */
@@ -145,7 +145,6 @@
             let cleaned = false;
             ['project', 'line', 'date_', 'source', 'datum'].forEach(p => {
                 let v = url.searchParams.get(p);
-                // If ArcGIS passes literal {param} because it's empty, strip it out!
                 if (v && (v.includes('{') || v.includes('}'))) {
                     url.searchParams.delete(p);
                     cleaned = true;
@@ -255,7 +254,7 @@
         async function updateDependentDropdowns() { await Promise.all([ loadOptions('source', true), loadOptions('datum', true), loadOptions('line_name', true) ]); }
 
         async function buildUI() {
-            sanitizeArcGISParams(); // Fire the sanitizer first!
+            sanitizeArcGISParams(); 
             
             await loadOptions('project', false);
             const url = new URL(window.location);
@@ -269,17 +268,8 @@
             }
             document.getElementById('filter-date_').value = currentDateParam;
 
-            let currentProjectParam = url.searchParams.get('project');
-            if (!currentProjectParam || currentProjectParam === "null") {
-                const firstBox = document.querySelector('.project-checkbox');
-                if (firstBox) {
-                    currentProjectParam = firstBox.value;
-                    url.searchParams.set('project', currentProjectParam);
-                    urlChanged = true;
-                    firstBox.checked = true;
-                }
-            }
-
+            // --- FIXED: Removed the "Force Default Project" logic. 
+            // If the dashboard doesn't pass a project, it stays blank (All Projects).
             if (urlChanged) window.history.replaceState({}, '', url); 
             updateMultiSelectText('project', 'All Projects');
 
@@ -311,20 +301,13 @@
             const url = new URL(window.location.origin + window.location.pathname);
             const todayStr = getTodayString();
             url.searchParams.set('date_', todayStr);
-            
-            let firstProj = "";
-            const projCheckboxes = document.querySelectorAll('.project-checkbox');
-            if (projCheckboxes.length > 0) {
-                firstProj = projCheckboxes[0].value;
-                url.searchParams.set('project', firstProj);
-            }
             window.history.pushState({}, '', url);
 
             document.getElementById('filter-source').value = '';
             document.getElementById('filter-datum').value = '';
             document.getElementById('filter-date_').value = todayStr;
             
-            projCheckboxes.forEach((cb, i) => cb.checked = (i === 0));
+            document.querySelectorAll('.project-checkbox').forEach(cb => cb.checked = false);
             document.querySelectorAll('.line-checkbox').forEach(cb => cb.checked = false);
             updateMultiSelectText('project', 'All Projects');
             updateMultiSelectText('line', 'All Lines');
@@ -348,7 +331,7 @@
         }
 
         async function fetchWaterLevels() {
-            sanitizeArcGISParams(); // Double check the URL before fetching
+            sanitizeArcGISParams(); 
             
             const currentUrl = window.location.search;
             if (currentUrl === lastUrl && mainChart) return;
@@ -383,11 +366,7 @@
         }
 
         function processAndDraw(features, selectedDate) {
-            const datumColors = { 
-                'MLLW': '#FF4F60', 
-                'MHW':  '#00B5F7', 
-                'BMHW': '#FFAB00'  
-            };
+            const datumColors = { 'MLLW': '#FF4F60', 'MHW': '#00B5F7', 'BMHW': '#FFAB00' };
 
             const chartData = features.map(f => {
                 const a = f.attributes;
