@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Water Level Windows Gantt (Pro Interactive)</title>
+    <title>Water Level Windows Gantt (Dashboard Embed)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         /* Bulletproof layout constraints */
@@ -139,6 +139,21 @@
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
 
+        // --- ARCGIS URL SANITIZER ---
+        function sanitizeArcGISParams() {
+            const url = new URL(window.location);
+            let cleaned = false;
+            ['project', 'line', 'date_', 'source', 'datum'].forEach(p => {
+                let v = url.searchParams.get(p);
+                // If ArcGIS passes literal {param} because it's empty, strip it out!
+                if (v && (v.includes('{') || v.includes('}'))) {
+                    url.searchParams.delete(p);
+                    cleaned = true;
+                }
+            });
+            if (cleaned) window.history.replaceState({}, '', url);
+        }
+
         function toggleDropdown(id) { document.getElementById(id).classList.toggle('open'); }
 
         document.addEventListener('click', function(event) {
@@ -240,6 +255,8 @@
         async function updateDependentDropdowns() { await Promise.all([ loadOptions('source', true), loadOptions('datum', true), loadOptions('line_name', true) ]); }
 
         async function buildUI() {
+            sanitizeArcGISParams(); // Fire the sanitizer first!
+            
             await loadOptions('project', false);
             const url = new URL(window.location);
             let urlChanged = false;
@@ -331,6 +348,8 @@
         }
 
         async function fetchWaterLevels() {
+            sanitizeArcGISParams(); // Double check the URL before fetching
+            
             const currentUrl = window.location.search;
             if (currentUrl === lastUrl && mainChart) return;
             lastUrl = currentUrl;
@@ -364,12 +383,10 @@
         }
 
         function processAndDraw(features, selectedDate) {
-            
-            // --- NEW: VIBRANT COLOR MAPPING ---
             const datumColors = { 
-                'MLLW': '#FF4F60', // Vibrant Red
-                'MHW':  '#00B5F7', // Bright Blue
-                'BMHW': '#FFAB00'  // Rich Orange
+                'MLLW': '#FF4F60', 
+                'MHW':  '#00B5F7', 
+                'BMHW': '#FFAB00'  
             };
 
             const chartData = features.map(f => {
