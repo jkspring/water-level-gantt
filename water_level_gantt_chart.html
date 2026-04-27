@@ -66,10 +66,10 @@
         .custom-select-options label:hover { background-color: #444; color: #fff; }
         .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
 
-        /* The Date Rocker */
-        .date-rocker { display: flex; align-items: center; gap: 5px; }
-        .date-rocker button { padding: 0 10px; font-size: 12px; background-color: #444; height: 36px; }
-        .date-rocker button:hover { background-color: #555; }
+        /* Rocker Groups (Dates & Lines) */
+        .rocker-group { display: flex; align-items: center; gap: 5px; }
+        .rocker-group button { padding: 0 10px; font-size: 12px; background-color: #444; height: 36px; border-radius: 4px; }
+        .rocker-group button:hover { background-color: #555; }
 
         /* --- 3-TIER CHART ARCHITECTURE --- */
         #top_axis_wrapper {
@@ -112,18 +112,33 @@
         <select id="filter-source"><option value="">All Sources</option></select>
         <select id="filter-datum"><option value="">All Datums</option></select>
 
-        <div class="custom-select-wrapper" id="line-dropdown-wrapper">
-            <div class="custom-select-box" onclick="toggleDropdown('filter-line-options')">
-                <span id="line-select-text">All Lines</span> <span style="font-size: 10px;">▼</span>
+        <div class="rocker-group">
+            <button onclick="adjustLine(-1)" title="Previous Line">&#9664;</button>
+            <div class="custom-select-wrapper" id="line-dropdown-wrapper">
+                <div class="custom-select-box" onclick="toggleDropdown('filter-line-options')">
+                    <span id="line-select-text">All Lines</span> <span style="font-size: 10px;">▼</span>
+                </div>
+                <div class="custom-select-options" id="filter-line-options"></div>
             </div>
-            <div class="custom-select-options" id="filter-line-options"></div>
+            <button onclick="adjustLine(1)" title="Next Line">&#9654;</button>
         </div>
         
-        <div class="date-rocker">
+        <div class="rocker-group">
             <button onclick="adjustDate(-1)" title="Previous Day">&#9664;</button>
             <input type="date" id="filter-date_">
             <button onclick="adjustDate(1)" title="Next Day">&#9654;</button>
         </div>
+
+        <select id="filter-tz">
+            <option value="local" data-name="Computer Time">Computer Time</option>
+            <option value="utc" data-name="UTC">UTC</option>
+            <option value="America/New_York" data-name="Eastern Time">Eastern Time</option>
+            <option value="America/Chicago" data-name="Central Time">Central Time</option>
+            <option value="America/Denver" data-name="Mountain Time">Mountain Time</option>
+            <option value="America/Los_Angeles" data-name="Pacific Time">Pacific Time</option>
+            <option value="America/Anchorage" data-name="Alaska Time">Alaska Time</option>
+            <option value="Pacific/Honolulu" data-name="Hawaii Time">Hawaii Time</option>
+        </select>
 
         <button onclick="resetFilters()">Reset Filters</button>
     </div>
@@ -139,11 +154,10 @@
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
 
-        // --- ARCGIS URL SANITIZER ---
         function sanitizeArcGISParams() {
             const url = new URL(window.location);
             let cleaned = false;
-            ['project', 'line', 'date_', 'source', 'datum'].forEach(p => {
+            ['project', 'line', 'date_', 'source', 'datum', 'tz'].forEach(p => {
                 let v = url.searchParams.get(p);
                 if (v && (v.includes('{') || v.includes('}'))) {
                     url.searchParams.delete(p);
@@ -183,6 +197,28 @@
             fetchWaterLevels();
         }
 
+        function adjustLine(direction) {
+            const checkboxes = Array.from(document.querySelectorAll('.line-checkbox'));
+            if (checkboxes.length === 0) return; 
+            
+            let selectedIndices = [];
+            checkboxes.forEach((cb, idx) => { if (cb.checked) selectedIndices.push(idx); });
+            
+            let currentIndex = -1;
+            if (selectedIndices.length > 0) {
+                currentIndex = direction > 0 ? Math.max(...selectedIndices) : Math.min(...selectedIndices);
+            } else {
+                currentIndex = direction > 0 ? -1 : checkboxes.length;
+            }
+
+            let newIndex = currentIndex + direction;
+            if (newIndex < 0) newIndex = checkboxes.length - 1; 
+            if (newIndex >= checkboxes.length) newIndex = 0; 
+
+            checkboxes.forEach((cb, idx) => cb.checked = (idx === newIndex));
+            handleMultiSelectChange('line'); 
+        }
+
         function getTodayString() {
             const today = new Date();
             return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -200,6 +236,40 @@
             url.searchParams.set('date_', newDateStr);
             window.history.pushState({}, '', url);
             fetchWaterLevels();
+        }
+
+        // --- DYNAMIC TIMEZONE TEXT UPDATER ---
+        // Recalculates the UTC offset for the exact date selected to handle DST dynamically
+        function updateTimezoneLabels(dateString) {
+            let d = new Date();
+            if (dateString) {
+                const parts = dateString.split('-');
+                d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0); // Pick noon to avoid midnight bugs
+            }
+            
+            const tzSelect = document.getElementById('filter-tz');
+            Array.from(tzSelect.options).forEach(opt => {
+                const tz = opt.value;
+                let offsetStr = "";
+                
+                if (tz === 'local') {
+                    const offsetMinutes = -d.getTimezoneOffset();
+                    const sign = offsetMinutes >= 0 ? '+' : '';
+                    offsetStr = `UTC${sign}${offsetMinutes / 60}`;
+                } else if (tz === 'utc') {
+                    offsetStr = "UTC±0";
+                } else {
+                    try {
+                        const tzDateStr = d.toLocaleString('en-US', { timeZone: tz, timeZoneName: 'shortOffset' });
+                        const match = tzDateStr.match(/GMT([+-]\d+(:[0-5]\d)?)/);
+                        if (match) offsetStr = `UTC${match[1]}`;
+                        else offsetStr = "UTC+0";
+                    } catch(e) { offsetStr = "UTC"; }
+                }
+                
+                const baseName = opt.getAttribute('data-name');
+                opt.text = `${baseName} (${offsetStr})`;
+            });
         }
 
         async function loadOptions(field, dependsOnProjects = false) {
@@ -267,10 +337,8 @@
                 urlChanged = true;
             }
             document.getElementById('filter-date_').value = currentDateParam;
+            updateTimezoneLabels(currentDateParam);
 
-            // --- THE FIX IS HERE ---
-            // Removed the logic that forces AK2104 to load! 
-            // It will now strictly read whatever the URL has.
             let currentProjectParam = url.searchParams.get('project');
             if (currentProjectParam && currentProjectParam !== "null") {
                 const projArray = currentProjectParam.split(',');
@@ -284,7 +352,7 @@
 
             if (urlChanged) window.history.replaceState({}, '', url); 
 
-            ['source', 'datum'].forEach(param => {
+            ['source', 'datum', 'tz'].forEach(param => {
                 const val = url.searchParams.get(param);
                 if (val && val !== "null") {
                     const el = document.getElementById(`filter-${param}`);
@@ -294,7 +362,7 @@
 
             await updateDependentDropdowns();
 
-            document.querySelectorAll('#filter-source, #filter-datum, #filter-date_').forEach(el => {
+            document.querySelectorAll('#filter-source, #filter-datum, #filter-date_, #filter-tz').forEach(el => {
                 el.addEventListener('change', async (e) => {
                     const currentUrl = new URL(window.location);
                     const paramName = e.target.id.replace('filter-', '');
@@ -316,7 +384,9 @@
 
             document.getElementById('filter-source').value = '';
             document.getElementById('filter-datum').value = '';
+            document.getElementById('filter-tz').value = 'local';
             document.getElementById('filter-date_').value = todayStr;
+            updateTimezoneLabels(todayStr);
             
             document.querySelectorAll('.project-checkbox').forEach(cb => cb.checked = false);
             document.querySelectorAll('.line-checkbox').forEach(cb => cb.checked = false);
@@ -339,6 +409,15 @@
                     label.querySelectorAll('tspan').forEach(t => { t.setAttribute('fill', targetColor); t.style.fill = targetColor; });
                 }
             });
+        }
+
+        function getTzOffsetMs(timestamp, timeZone) {
+            try {
+                const d = new Date(timestamp);
+                const tzDate = new Date(d.toLocaleString('en-US', { timeZone: timeZone }));
+                const utcDate = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
+                return tzDate.getTime() - utcDate.getTime();
+            } catch(e) { return 0; }
         }
 
         async function fetchWaterLevels() {
@@ -370,14 +449,24 @@
             const params = new URLSearchParams({ where: sqlWhere, outFields: "project,line_name,start,end_,datum,source", returnGeometry: "false", f: "json", token: apiKey });
 
             try {
+                const selectedDate = urlParams.get('date_');
+                updateTimezoneLabels(selectedDate); // Re-run DST math if the URL forced a date change
+                
                 const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
                 const data = await response.json();
-                if (data.features) processAndDraw(data.features, urlParams.get('date_'));
+                
+                const tzSetting = urlParams.get('tz') || 'local';
+                if (data.features) processAndDraw(data.features, selectedDate, tzSetting);
             } catch (error) { console.error("Fetch failed:", error); }
         }
 
-        function processAndDraw(features, selectedDate) {
+        function processAndDraw(features, selectedDate, tzSetting) {
             const datumColors = { 'MLLW': '#FF4F60', 'MHW': '#00B5F7', 'BMHW': '#FFAB00' };
+            
+            const useApexUTC = (tzSetting !== 'local');
+            const tzSelect = document.getElementById('filter-tz');
+            const selectedOption = tzSelect.options[tzSelect.selectedIndex];
+            const fullTzName = selectedOption ? selectedOption.text : tzSetting;
 
             const chartData = features.map(f => {
                 const a = f.attributes;
@@ -385,9 +474,17 @@
                 const dType = (a.datum || 'N/A').toUpperCase();
                 const projName = a.project || "Unknown Project";
                 
+                let startT = new Date(a.start).getTime();
+                let endT = new Date(a.end_).getTime();
+
+                if (tzSetting !== 'local' && tzSetting !== 'utc') {
+                    startT += getTzOffsetMs(startT, tzSetting);
+                    endT += getTzOffsetMs(endT, tzSetting);
+                }
+
                 return {
                     x: [`${projName}  ▶  ${a.line_name}`, `${sName}  |  ${dType}`], 
-                    y: [new Date(a.start).getTime(), new Date(a.end_).getTime()],
+                    y: [startT, endT],
                     fillColor: datumColors[dType] || '#775DD0',
                     project: projName, datum: dType, source: sName, originalLine: a.line_name
                 };
@@ -400,11 +497,17 @@
                 return a.datum.localeCompare(b.datum);
             });
 
-            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: false }, tickAmount: 24 };
+            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: useApexUTC }, tickAmount: 24 };
+            
             if (selectedDate && selectedDate !== "null") {
                 const parts = selectedDate.split('-');
-                xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
-                xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
+                if (useApexUTC) {
+                    xAxisConfig.min = Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0);
+                    xAxisConfig.max = Date.UTC(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
+                } else {
+                    xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
+                    xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
+                }
             }
 
             const uniqueRows = new Set(chartData.map(d => d.x.join('|'))).size;
@@ -418,7 +521,9 @@
 
             const commonYAxis = { labels: { minWidth: 200, maxWidth: 200 } };
 
-            const nowTime = new Date().getTime();
+            let nowTime = new Date().getTime();
+            if (tzSetting !== 'local' && tzSetting !== 'utc') { nowTime += getTzOffsetMs(nowTime, tzSetting); }
+
             const nowAnnotationLine = { x: nowTime, strokeDashArray: 0, borderColor: '#FF4560', borderWidth: 2 };
             const nowAnnotationLabel = {
                 ...nowAnnotationLine,
@@ -429,7 +534,7 @@
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
                 chart: { type: 'rangeBar', height: 60, group: 'sync-gantt', id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
-                xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: useApexUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
                 annotations: { xaxis: [ nowAnnotationLabel ] },
                 grid: { show: false, padding: { left: 0, right: 30, top: 0, bottom: -20 } },
@@ -440,7 +545,7 @@
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
                 chart: { type: 'rangeBar', height: 50, group: 'sync-gantt', id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
-                xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: false } },
+                xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: useApexUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
                 annotations: { xaxis: [ nowAnnotationLine ] },
                 grid: { show: false, padding: { left: 0, right: 30, top: -20, bottom: 0 } },
@@ -462,8 +567,14 @@
                         const d = opts.w.globals.initialSeries[opts.seriesIndex].data[opts.dataPointIndex];
                         const startD = new Date(d.y[0]);
                         const endD = new Date(d.y[1]);
-                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
-                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
+                        
+                        const sH = useApexUTC ? startD.getUTCHours() : startD.getHours();
+                        const sM = useApexUTC ? startD.getUTCMinutes() : startD.getMinutes();
+                        const eH = useApexUTC ? endD.getUTCHours() : endD.getHours();
+                        const eM = useApexUTC ? endD.getUTCMinutes() : endD.getMinutes();
+                        
+                        const sTime = String(sH).padStart(2, '0') + String(sM).padStart(2, '0');
+                        const eTime = String(eH).padStart(2, '0') + String(eM).padStart(2, '0');
                         return `${sTime} - ${eTime}`;
                     },
                     style: { fontSize: '11px', fontWeight: 700, colors: ['#111'] },
@@ -482,8 +593,14 @@
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
                         const startD = new Date(d.y[0]);
                         const endD = new Date(d.y[1]);
-                        const sTime = String(startD.getHours()).padStart(2, '0') + String(startD.getMinutes()).padStart(2, '0');
-                        const eTime = String(endD.getHours()).padStart(2, '0') + String(endD.getMinutes()).padStart(2, '0');
+                        
+                        const sH = useApexUTC ? startD.getUTCHours() : startD.getHours();
+                        const sM = useApexUTC ? startD.getUTCMinutes() : startD.getMinutes();
+                        const eH = useApexUTC ? endD.getUTCHours() : endD.getHours();
+                        const eM = useApexUTC ? endD.getUTCMinutes() : endD.getMinutes();
+                        
+                        const sTime = String(sH).padStart(2, '0') + String(sM).padStart(2, '0');
+                        const eTime = String(eH).padStart(2, '0') + String(eM).padStart(2, '0');
                         const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
                         
                         return `<div style="padding: 8px; background: #222; border: 1px solid ${d.fillColor}; color: #fff; font-size: 11px; line-height: 1.4;">` +
@@ -491,7 +608,7 @@
                             `<span><b>Project:</b> ${d.project}</span><br>` +
                             `<span><b>Line:</b> ${d.originalLine}</span><br>` +
                             `<span><b>Datum:</b> ${d.datum}</span><br>` +
-                            `<span><b>Local Time:</b> ${sTime} - ${eTime}</span></div>`;
+                            `<span><b>Time (${fullTzName}):</b> ${sTime} - ${eTime}</span></div>`;
                     }
                 }
             };
