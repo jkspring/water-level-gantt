@@ -285,7 +285,6 @@
                 const data = await res.json();
                 if (data.features) {
                     
-                    // FORCE CASE-INSENSITIVE DEDUPLICATION FOR SOURCE AND DATUM
                     let rawVals = data.features.map(f => f.attributes[field]).filter(v => v);
                     if (field === 'source' || field === 'datum') {
                         rawVals = rawVals.map(v => String(v).toUpperCase());
@@ -312,7 +311,8 @@
                     } else {
                         const selectEl = document.getElementById(`filter-${field}`);
                         if (selectEl) {
-                            const currentVal = selectEl.value; 
+                            const urlVal = new URL(window.location).searchParams.get(field); 
+                            
                             while (selectEl.options.length > 1) selectEl.remove(1);
                             uniqueVals.forEach(val => {
                                 const opt = document.createElement('option');
@@ -320,7 +320,7 @@
                                 selectEl.appendChild(opt);
                             });
                             
-                            const matchedVal = currentVal ? uniqueVals.find(v => v.toUpperCase() === currentVal.toUpperCase()) : null;
+                            const matchedVal = urlVal ? uniqueVals.find(v => v.toUpperCase() === urlVal.toUpperCase()) : null;
                             
                             if (matchedVal) {
                                 selectEl.value = matchedVal;
@@ -373,13 +373,11 @@
 
             if (urlChanged) window.history.replaceState({}, '', url); 
 
-            ['source', 'datum', 'tz'].forEach(param => {
-                const val = url.searchParams.get(param);
-                if (val && val !== "null") {
-                    const el = document.getElementById(`filter-${param}`);
-                    if (el) el.value = val;
-                }
-            });
+            const tzVal = url.searchParams.get('tz');
+            if (tzVal && tzVal !== "null") {
+                const el = document.getElementById('filter-tz');
+                if (el) el.value = tzVal;
+            }
 
             await updateDependentDropdowns();
 
@@ -419,12 +417,17 @@
             updateDependentDropdowns().then(() => fetchWaterLevels());
         }
 
+        /* --- THE FIX: FORCED RIGHT-ALIGN TEXT ANCHOR FOR EVERY SINGLE ROW --- */
         function colorizeYAxisText() {
             const labels = document.querySelectorAll('#chart_container .apexcharts-yaxis-label');
             labels.forEach(label => {
                 const text = label.textContent || "";
                 let targetColor = '#888888'; 
-                let isHeader = text.includes('  |  ');
+                let isHeader = text.includes('PYDRO') || text.includes('STOFS');
+                
+                // Force parent label container to anchor at the end
+                label.setAttribute('text-anchor', 'end');
+                label.style.textAnchor = 'end';
                 
                 if (isHeader) {
                     if (text.includes('PYDRO')) targetColor = '#eb97d8';
@@ -432,16 +435,51 @@
                     else targetColor = '#ffffff'; 
                     
                     label.style.fontWeight = 'bold';
-                }
+                    
+                    const tspans = label.querySelectorAll('tspan');
+                    if (tspans.length >= 2) {
+                        const parentX = label.getAttribute('x') || 0;
+                        
+                        tspans.forEach((t, i) => {
+                            t.setAttribute('fill', targetColor); 
+                            t.style.fill = targetColor; 
+                            t.style.fontWeight = 'bold';
+                            
+                            // Force each multi-line segment to anchor right
+                            t.setAttribute('text-anchor', 'end'); 
+                            t.style.textAnchor = 'end';
+                            t.setAttribute('x', parentX);
+                            
+                            if (i === 0) t.setAttribute('dy', '-0.2em'); 
+                            if (i === 1) t.setAttribute('dy', '1.2em');
+                        });
+                    } else {
+                        tspans.forEach(t => { 
+                            t.setAttribute('fill', targetColor); 
+                            t.style.fill = targetColor; 
+                            t.style.fontWeight = 'bold';
+                            t.setAttribute('text-anchor', 'end'); 
+                            t.style.textAnchor = 'end';
+                        });
+                    }
+                } else {
+                    label.setAttribute('fill', targetColor); 
+                    label.style.fill = targetColor;
+                    label.style.fontWeight = 'normal';
+                    
+                    const parentX = label.getAttribute('x') || 0;
 
-                label.setAttribute('fill', targetColor); 
-                label.style.fill = targetColor;
-                
-                label.querySelectorAll('tspan').forEach(t => { 
-                    t.setAttribute('fill', targetColor); 
-                    t.style.fill = targetColor; 
-                    if (isHeader) t.style.fontWeight = 'bold';
-                });
+                    label.querySelectorAll('tspan').forEach(t => { 
+                        t.setAttribute('fill', targetColor); 
+                        t.style.fill = targetColor; 
+                        t.style.fontWeight = 'normal';
+                        
+                        // Force every flight-line row to explicitly anchor right
+                        t.setAttribute('text-anchor', 'end'); 
+                        t.style.textAnchor = 'end';
+                        t.setAttribute('x', parentX);
+                    });
+                }
             });
         }
 
@@ -475,7 +513,6 @@
                         const arr = val.split(',').map(l => `'${l}'`).join(',');
                         sqlWhere += ` AND line_name IN (${arr})`;
                     } else if (key === 'source' || key === 'datum') {
-                        // FORCE CASE-INSENSITIVE SQL MATCHING
                         sqlWhere += ` AND UPPER(${key}) = '${val.toUpperCase()}'`;
                     } else {
                         sqlWhere += ` AND ${key} = '${val}'`;
@@ -576,7 +613,8 @@
             });
 
             const uniqueRows = new Set(chartData.map(d => d.x)).size;
-            const baseRowHeight = 30; 
+            
+            const baseRowHeight = 40; 
             let calculatedHeight = (uniqueRows * baseRowHeight) + 40; 
             
             const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
@@ -586,19 +624,24 @@
 
             const commonYAxis = { 
                 labels: { 
-                    minWidth: 240, 
-                    maxWidth: 240, 
+                    minWidth: 150, 
+                    maxWidth: 150, 
+                    align: 'right', 
+                    offsetX: -5,
                     style: { fontSize: '11px', fontWeight: 500, fontFamily: 'Segoe UI' },
                     formatter: function(val) {
                         if (val === undefined || val === null) return "";
+                        
+                        if (Array.isArray(val) && !String(val[0]).includes('|||')) return val; 
+
                         let strVal = Array.isArray(val) ? val.join(" ") : String(val);
                         
                         const parts = strVal.split('|||');
                         if (parts.length === 4) {
                             if (parts[3] === '__HEADER__') {
-                                return `${parts[0]}  |  ${parts[1]} - ${parts[2]}`; 
+                                return [parts[0], `${parts[1]} - ${parts[2]}`]; 
                             } else {
-                                return `        ${parts[3]}`; 
+                                return parts[3]; 
                             }
                         }
                         return strVal;
