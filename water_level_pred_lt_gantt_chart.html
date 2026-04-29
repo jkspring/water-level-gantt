@@ -5,7 +5,7 @@
     <title>RSD Water Level Windows Gantt (Long-Term Predictions No Residuals)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
-        /* Bulletproof layout constraints */
+        /* Layout constraints */
         html, body { 
             margin: 0; padding: 0; 
             width: 100vw; height: 100vh; 
@@ -70,9 +70,8 @@
         .rocker-group { display: flex; align-items: center; gap: 4px; }
         .rocker-group button { padding: 0 8px; font-size: 11px; background-color: #444; height: 28px; border-radius: 4px; }
         .rocker-group button:hover { background-color: #555; }
-        .rocker-group span { color: #aaa; font-size: 11px; }
 
-        /* --- 4-TIER CHART ARCHITECTURE --- */
+        /* --- 3-TIER CHART ARCHITECTURE --- */
         #top_axis_wrapper {
             flex: 0 0 45px; width: 100%; background-color: #1a1a1a;
             border-bottom: 1px solid #444; z-index: 10;
@@ -87,13 +86,8 @@
             border-top: 1px solid #444; z-index: 10;
             overflow-y: scroll; overflow-x: hidden; 
         }
-        #brush_wrapper {
-            flex: 0 0 110px; width: 100%; background-color: #222;
-            border-top: 1px solid #444; z-index: 10;
-            padding-bottom: 5px;
-        }
         
-        #chart_container, #brush_container, #top_axis_container, #bottom_axis_container { width: 100%; }
+        #chart_container, #top_axis_container, #bottom_axis_container { width: 100%; }
         
         /* Dark Mode Scrollbars */
         ::-webkit-scrollbar { width: 14px; }
@@ -126,11 +120,11 @@
         </div>
         
         <div class="rocker-group">
-            <button onclick="adjustDateRange(-1)" title="Previous Time Window">&#9664;</button>
-            <input type="date" id="filter-start-date" title="Start Date">
-            <span>to</span>
-            <input type="date" id="filter-end-date" title="End Date">
-            <button onclick="adjustDateRange(1)" title="Next Time Window">&#9654;</button>
+            <button onclick="adjustDateRange(-1)" title="Previous Window">&#9664;</button>
+            <input type="date" id="filter-start-date">
+            <span style="color:#aaa; font-size:11px;">to</span>
+            <input type="date" id="filter-end-date">
+            <button onclick="adjustDateRange(1)" title="Next Window">&#9654;</button>
         </div>
 
         <select id="filter-tz">
@@ -150,14 +144,12 @@
     <div id="top_axis_wrapper"><div id="top_axis_container"></div></div>
     <div id="chart_wrapper"><div id="chart_container"></div></div>
     <div id="bottom_axis_wrapper"><div id="bottom_axis_container"></div></div>
-    <div id="brush_wrapper"><div id="brush_container"></div></div>
 
     <script type="text/javascript">
-        // [Existing script remains unchanged...]
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/rsd_water_levels_pred_lt/FeatureServer/0/query";
         const apiKey = "AAPTa8aN-Z4QElRWL6VAqUg1XNw..vVeJm922uquPytesw9NuxFcZchriTfHrHKmowDPEPrpT6olF_28S-mA3YDS7Warj_gIhLAxUN5wuUONuWrETteK51snrXRsqaW2tVyVNwipxOABunk_RhK5GxsM9z2wn3AO3I4sP3CSM9jQvTOnRO2vvcabzzO2JicnRKamn2BA7KSsKCJ4jP9HXxnUteZ-C866RnOd-mIB9OOv0ZBPyBYe0nMlbRwgatV4EpOdn7zB_BjHXdTLEgsUiWjjmpL5XbeiWLocOAT1_qwYxq0aX"; 
         
-        let mainChart, brushChart, topChart, bottomChart;
+        let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
 
         function sanitizeArcGISParams() {
@@ -649,7 +641,7 @@
                 series: [{ data: chartData }],
                 chart: { 
                     type: 'rangeBar', height: calculatedHeight, group: 'sync-gantt', id: 'main-chart',
-                    toolbar: { show: false }, 
+                    toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
                     events: { mounted: function() { colorizeYAxisText(); }, updated: function() { colorizeYAxisText(); } },
                     animations: { enabled: false }
                 },
@@ -683,33 +675,15 @@
                 }
             };
 
-            const brushSelectionEnd = minTime + (7 * 24 * 60 * 60 * 1000); 
-            const brushOptions = {
-                series: [{ data: chartData }],
-                chart: {
-                    type: 'rangeBar', height: 110, id: 'brush-chart',
-                    brush: { enabled: true, target: 'main-chart', autoScaleYaxis: false },
-                    selection: { enabled: true, xaxis: { min: minTime, max: brushSelectionEnd > maxTime ? maxTime : brushSelectionEnd } },
-                    toolbar: { show: false }
-                },
-                plotOptions: { bar: { horizontal: true, barHeight: '60%' } },
-                stroke: { width: 0 },
-                xaxis: { ...dynamicXAxis, tickAmount: 10, tooltip: { enabled: false } },
-                yaxis: { show: false },
-                grid: { borderColor: '#444', padding: { left: 200, right: 30 } }, 
-                dataLabels: { enabled: false },
-                tooltip: { enabled: false } 
-            };
-
             if (topChart) topChart.destroy();
             if (mainChart) mainChart.destroy();
             if (bottomChart) bottomChart.destroy();
-            if (brushChart) brushChart.destroy(); 
+
             topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions);
             mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions);
             bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions);
-            brushChart = new ApexCharts(document.querySelector("#brush_container"), brushOptions);
-            topChart.render(); mainChart.render(); bottomChart.render(); brushChart.render();
+            
+            topChart.render(); mainChart.render(); bottomChart.render();
         }
 
         buildUI();
