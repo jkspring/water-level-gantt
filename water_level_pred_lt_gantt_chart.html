@@ -16,51 +16,61 @@
             flex-direction: column;
         }
         
-        /* UI Bar */
+        /* UI Bar - Compact (Matched to ST) */
         #ui_controls {
-            flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 15px; padding: 15px;
-            background-color: #222; border-bottom: 1px solid #444; align-items: center; z-index: 20;
+            flex: 0 0 auto; 
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px 15px;
+            background-color: #222;
+            border-bottom: 1px solid #444;
+            align-items: center;
+            z-index: 20;
         }
         
         #ui_controls select, #ui_controls input[type="date"], #ui_controls button {
             background-color: #333; color: #fff; border: 1px solid #555;
-            padding: 8px 12px; border-radius: 4px; font-family: inherit;
-            font-size: 14px; outline: none; height: 36px; box-sizing: border-box;
+            padding: 4px 10px; border-radius: 4px; font-family: inherit;
+            font-size: 12px; outline: none; height: 28px; box-sizing: border-box;
         }
+
         #ui_controls select:hover, #ui_controls input:hover { border-color: #777; }
-        
+
         #ui_controls button {
             background-color: #008FFB; border: none; cursor: pointer;
             font-weight: 600; transition: background 0.2s;
         }
         #ui_controls button:hover { background-color: #0076d1; }
 
-        #ui_controls .rocker-btn { padding: 0 10px; font-size: 12px; background-color: #444; }
-        #ui_controls .rocker-btn:hover { background-color: #555; }
-
-        .date-group { display: flex; align-items: center; gap: 8px; }
-        .date-group span { color: #aaa; font-size: 13px; }
-
-        /* Custom Multi-Select */
-        .custom-select-wrapper { position: relative; width: 200px; user-select: none; }
+        /* Custom Multi-Select - Compact */
+        .custom-select-wrapper { position: relative; width: 170px; user-select: none; }
         .custom-select-box {
             background-color: #333; color: #fff; border: 1px solid #555;
-            padding: 0 12px; border-radius: 4px; font-size: 13px; height: 36px;
-            display: flex; align-items: center; justify-content: space-between; cursor: pointer; box-sizing: border-box;
+            padding: 0 10px; border-radius: 4px; font-size: 12px; height: 28px;
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; box-sizing: border-box;
         }
         .custom-select-box:hover { border-color: #777; }
         .custom-select-options {
-            position: absolute; top: 100%; left: 0; right: 0; background-color: #333; border: 1px solid #555; 
-            border-top: none; border-radius: 0 0 4px 4px; max-height: 300px; overflow-y: auto; z-index: 100; 
-            display: none; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            position: absolute; top: 100%; left: 0; right: 0;
+            background-color: #333; border: 1px solid #555; border-top: none;
+            border-radius: 0 0 4px 4px; max-height: 300px; overflow-y: auto;
+            z-index: 100; display: none; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
         }
         .custom-select-options.open { display: block; }
         .custom-select-options label {
-            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-            cursor: pointer; font-size: 13px; color: #ddd; transition: background 0.1s;
+            display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+            cursor: pointer; font-size: 12px; color: #ddd; transition: background 0.1s;
         }
         .custom-select-options label:hover { background-color: #444; color: #fff; }
         .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+        /* Rocker Groups (Matched to ST) */
+        .rocker-group { display: flex; align-items: center; gap: 4px; }
+        .rocker-group button { padding: 0 8px; font-size: 11px; background-color: #444; height: 28px; border-radius: 4px; }
+        .rocker-group button:hover { background-color: #555; }
+        .rocker-group span { color: #aaa; font-size: 11px; }
 
         /* --- 4-TIER CHART ARCHITECTURE --- */
         #top_axis_wrapper {
@@ -115,12 +125,12 @@
             <div class="custom-select-options" id="filter-line-options"></div>
         </div>
         
-        <div class="date-group">
-            <button class="rocker-btn" onclick="adjustDateRange(-1)" title="Previous Time Window">&#9664;</button>
+        <div class="rocker-group">
+            <button onclick="adjustDateRange(-1)" title="Previous Time Window">&#9664;</button>
             <input type="date" id="filter-start-date" title="Start Date">
             <span>to</span>
             <input type="date" id="filter-end-date" title="End Date">
-            <button class="rocker-btn" onclick="adjustDateRange(1)" title="Next Time Window">&#9654;</button>
+            <button onclick="adjustDateRange(1)" title="Next Time Window">&#9654;</button>
         </div>
 
         <select id="filter-tz">
@@ -134,7 +144,7 @@
             <option value="Pacific/Honolulu" data-name="Hawaii Time">Hawaii Time</option>
         </select>
 
-        <button onclick="resetFilters()">Reset</button>
+        <button onclick="resetFilters()">Reset Filters</button>
     </div>
 
     <div id="top_axis_wrapper"><div id="top_axis_container"></div></div>
@@ -143,6 +153,7 @@
     <div id="brush_wrapper"><div id="brush_container"></div></div>
 
     <script type="text/javascript">
+        // [Existing script remains unchanged...]
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/rsd_water_levels_pred_lt/FeatureServer/0/query";
         const apiKey = "AAPTa8aN-Z4QElRWL6VAqUg1XNw..vVeJm922uquPytesw9NuxFcZchriTfHrHKmowDPEPrpT6olF_28S-mA3YDS7Warj_gIhLAxUN5wuUONuWrETteK51snrXRsqaW2tVyVNwipxOABunk_RhK5GxsM9z2wn3AO3I4sP3CSM9jQvTOnRO2vvcabzzO2JicnRKamn2BA7KSsKCJ4jP9HXxnUteZ-C866RnOd-mIB9OOv0ZBPyBYe0nMlbRwgatV4EpOdn7zB_BjHXdTLEgsUiWjjmpL5XbeiWLocOAT1_qwYxq0aX"; 
         
@@ -402,7 +413,6 @@
             labels.forEach(label => {
                 const text = label.textContent || "";
                 let targetColor = '#888888'; 
-                // Header detection: checks if it has been formatted into two lines (represented by tspan count)
                 const tspans = label.querySelectorAll('tspan');
                 const isHeader = tspans.length >= 2;
                 
@@ -550,7 +560,6 @@
             });
 
             const uniqueRows = new Set(chartData.map(d => d.x)).size;
-            // baseRowHeight increased to 40 for multi-line support
             const baseRowHeight = 40; 
             let calculatedHeight = (uniqueRows * baseRowHeight) + 60; 
             const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
@@ -566,14 +575,11 @@
                     formatter: function(val) {
                         if (val === undefined || val === null) return "";
                         let strVal = Array.isArray(val) ? val.join(" ") : String(val);
-                        
                         const parts = strVal.split('|||');
                         if (parts.length === 4) {
                             if (parts[3] === '__HEADER__') {
-                                // Returning an array forces ApexCharts to wrap the text into two lines
                                 return [parts[0], `${parts[1]} - ${parts[2]}`]; 
                             } else {
-                                // Keep flight line indentation
                                 return `        ${parts[3]}`; 
                             }
                         }
@@ -595,13 +601,11 @@
                     formatter: function(val, timestamp, opts) {
                         if (!val) return '';
                         let d = new Date(val);
-                        
                         const dH = useApexUTC ? d.getUTCHours() : d.getHours();
                         const dM = useApexUTC ? d.getUTCMinutes() : d.getMinutes();
                         const dDay = useApexUTC ? d.getUTCDate() : d.getDate();
                         const dMonth = useApexUTC ? d.getUTCMonth() : d.getMonth();
                         const dYear = useApexUTC ? d.getUTCFullYear() : d.getFullYear();
-                        
                         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                         
                         let currentMin = minTime; let currentMax = maxTime;
@@ -610,11 +614,9 @@
                             currentMax = opts.w.globals.maxX;
                         }
                         const rangeDays = (currentMax - currentMin) / 86400000;
-                        
                         const dayStr = String(dDay).padStart(2, '0');
                         const monthStr = months[dMonth];
                         const timeStr = `${String(dH).padStart(2, '0')}:${String(dM).padStart(2, '0')}`;
-                        
                         if (rangeDays > 60) return `${monthStr} '${String(dYear).slice(-2)}`;
                         if (rangeDays > 14) return `${dayStr} ${monthStr}`;
                         if (rangeDays > 3) return `${dayStr} ${monthStr} ${timeStr}`;
@@ -663,7 +665,6 @@
                     custom: function({ series, seriesIndex, dataPointIndex, w }) {
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
                         if (d.isHeader) return `<div style="display:none;"></div>`; 
-                        
                         const startD = new Date(d.y[0]); const endD = new Date(d.y[1]);
                         const formatOpts = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
                         let sTime = useApexUTC ? startD.toLocaleString('en-US', { ...formatOpts, timeZone: 'UTC' }) : startD.toLocaleString('en-US', formatOpts);
@@ -704,16 +705,11 @@
             if (mainChart) mainChart.destroy();
             if (bottomChart) bottomChart.destroy();
             if (brushChart) brushChart.destroy(); 
-
             topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions);
             mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions);
             bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions);
             brushChart = new ApexCharts(document.querySelector("#brush_container"), brushOptions);
-            
-            topChart.render();
-            mainChart.render();
-            bottomChart.render();
-            brushChart.render();
+            topChart.render(); mainChart.render(); bottomChart.render(); brushChart.render();
         }
 
         buildUI();
