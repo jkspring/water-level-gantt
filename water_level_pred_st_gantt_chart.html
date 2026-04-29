@@ -16,13 +16,13 @@
             flex-direction: column;
         }
         
-        /* UI Bar */
+        /* UI Bar - Made Compact */
         #ui_controls {
             flex: 0 0 auto; 
             display: flex;
             flex-wrap: wrap;
-            gap: 15px;
-            padding: 15px;
+            gap: 10px; /* Reduced gap */
+            padding: 10px 15px; /* Reduced padding */
             background-color: #222;
             border-bottom: 1px solid #444;
             align-items: center;
@@ -31,8 +31,8 @@
         
         #ui_controls select, #ui_controls input[type="date"], #ui_controls button {
             background-color: #333; color: #fff; border: 1px solid #555;
-            padding: 8px 12px; border-radius: 4px; font-family: inherit;
-            font-size: 14px; outline: none; height: 36px; box-sizing: border-box;
+            padding: 4px 10px; border-radius: 4px; font-family: inherit;
+            font-size: 12px; outline: none; height: 28px; box-sizing: border-box;
         }
 
         #ui_controls select:hover, #ui_controls input:hover { border-color: #777; }
@@ -43,11 +43,11 @@
         }
         #ui_controls button:hover { background-color: #0076d1; }
 
-        /* Custom Multi-Select */
-        .custom-select-wrapper { position: relative; width: 200px; user-select: none; }
+        /* Custom Multi-Select - Made Compact */
+        .custom-select-wrapper { position: relative; width: 170px; user-select: none; }
         .custom-select-box {
             background-color: #333; color: #fff; border: 1px solid #555;
-            padding: 0 12px; border-radius: 4px; font-size: 13px; height: 36px;
+            padding: 0 10px; border-radius: 4px; font-size: 12px; height: 28px;
             display: flex; align-items: center; justify-content: space-between;
             cursor: pointer; box-sizing: border-box;
         }
@@ -60,15 +60,15 @@
         }
         .custom-select-options.open { display: block; }
         .custom-select-options label {
-            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-            cursor: pointer; font-size: 13px; color: #ddd; transition: background 0.1s;
+            display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+            cursor: pointer; font-size: 12px; color: #ddd; transition: background 0.1s;
         }
         .custom-select-options label:hover { background-color: #444; color: #fff; }
         .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
 
-        /* Rocker Groups (Dates & Lines) */
-        .rocker-group { display: flex; align-items: center; gap: 5px; }
-        .rocker-group button { padding: 0 10px; font-size: 12px; background-color: #444; height: 36px; border-radius: 4px; }
+        /* Rocker Groups (Dates & Lines) - Made Compact */
+        .rocker-group { display: flex; align-items: center; gap: 4px; }
+        .rocker-group button { padding: 0 8px; font-size: 11px; background-color: #444; height: 28px; border-radius: 4px; }
         .rocker-group button:hover { background-color: #555; }
 
         /* --- 3-TIER CHART ARCHITECTURE --- */
@@ -339,7 +339,7 @@
             document.getElementById('filter-date_').value = currentDateParam;
             updateTimezoneLabels(currentDateParam);
 
-            // Source defaults to pydro (lowercase) explicitly to match ArcGIS exactly
+            // Source defaults to pydro explicitly
             let currentSourceParam = url.searchParams.get('source');
             if (!currentSourceParam || currentSourceParam === "null") {
                 url.searchParams.set('source', 'pydro');
