@@ -402,7 +402,9 @@
             labels.forEach(label => {
                 const text = label.textContent || "";
                 let targetColor = '#888888'; 
-                let isHeader = text.includes('  |  ');
+                // Header detection: checks if it has been formatted into two lines (represented by tspan count)
+                const tspans = label.querySelectorAll('tspan');
+                const isHeader = tspans.length >= 2;
                 
                 if (isHeader) {
                     if (text.includes('PYDRO')) targetColor = '#eb97d8';
@@ -415,7 +417,7 @@
                 label.setAttribute('fill', targetColor); 
                 label.style.fill = targetColor;
                 
-                label.querySelectorAll('tspan').forEach(t => { 
+                tspans.forEach(t => { 
                     t.setAttribute('fill', targetColor); 
                     t.style.fill = targetColor; 
                     if (isHeader) t.style.fontWeight = 'bold';
@@ -548,7 +550,8 @@
             });
 
             const uniqueRows = new Set(chartData.map(d => d.x)).size;
-            const baseRowHeight = 30; 
+            // baseRowHeight increased to 40 for multi-line support
+            const baseRowHeight = 40; 
             let calculatedHeight = (uniqueRows * baseRowHeight) + 60; 
             const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
             if (calculatedHeight < wrapperHeight) calculatedHeight = wrapperHeight;
@@ -567,9 +570,10 @@
                         const parts = strVal.split('|||');
                         if (parts.length === 4) {
                             if (parts[3] === '__HEADER__') {
-                                return `${parts[0]}  |  ${parts[1]} - ${parts[2]}`; 
+                                // Returning an array forces ApexCharts to wrap the text into two lines
+                                return [parts[0], `${parts[1]} - ${parts[2]}`]; 
                             } else {
-                                // Removed the arrow, keeping exactly 8 spaces for indent
+                                // Keep flight line indentation
                                 return `        ${parts[3]}`; 
                             }
                         }
