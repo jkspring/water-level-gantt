@@ -311,6 +311,7 @@
                                 opt.value = val; opt.textContent = val;
                                 selectEl.appendChild(opt);
                             });
+                            // Keep selection if it still exists, otherwise clear it
                             if (currentVal && uniqueVals.includes(currentVal)) selectEl.value = currentVal;
                             else { selectEl.value = ""; const url = new URL(window.location); url.searchParams.delete(field); window.history.replaceState({}, '', url); }
                         }
@@ -328,6 +329,7 @@
             const url = new URL(window.location);
             let urlChanged = false;
 
+            // Date defaults
             let currentDateParam = url.searchParams.get('date_');
             if (!currentDateParam || currentDateParam === "null") {
                 currentDateParam = getTodayString();
@@ -337,6 +339,14 @@
             document.getElementById('filter-date_').value = currentDateParam;
             updateTimezoneLabels(currentDateParam);
 
+            // Source defaults to pydro (lowercase) explicitly to match ArcGIS exactly
+            let currentSourceParam = url.searchParams.get('source');
+            if (!currentSourceParam || currentSourceParam === "null") {
+                url.searchParams.set('source', 'pydro');
+                urlChanged = true;
+            }
+
+            // Project Checkbox logic
             let currentProjectParam = url.searchParams.get('project');
             if (currentProjectParam && currentProjectParam !== "null") {
                 const projArray = currentProjectParam.split(',');
@@ -377,10 +387,12 @@
         function resetFilters() {
             const url = new URL(window.location.origin + window.location.pathname);
             const todayStr = getTodayString();
+            
             url.searchParams.set('date_', todayStr);
+            url.searchParams.set('source', 'pydro'); // DEFAULT TO pydro ON RESET
             window.history.pushState({}, '', url);
 
-            document.getElementById('filter-source').value = '';
+            document.getElementById('filter-source').value = 'pydro'; // DEFAULT TO pydro ON RESET
             document.getElementById('filter-datum').value = '';
             document.getElementById('filter-tz').value = 'local';
             document.getElementById('filter-date_').value = todayStr;
@@ -525,7 +537,7 @@
                     headers.add(headerKey);
                     chartData.push({
                         x: headerKey,
-                        y: [minTime, minTime], // Zero-width invisible bar 
+                        y: [minTime, minTime], 
                         fillColor: 'transparent',
                         project: d.project,
                         datum: d.datum,
@@ -548,7 +560,7 @@
             });
 
             const uniqueRows = new Set(chartData.map(d => d.x)).size;
-            const baseRowHeight = 30; // Shrunk to match the grouped visual scale
+            const baseRowHeight = 30; 
             let calculatedHeight = (uniqueRows * baseRowHeight) + 40; 
             
             const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
@@ -570,7 +582,7 @@
                             if (parts[3] === '__HEADER__') {
                                 return `${parts[0]}  |  ${parts[1]} - ${parts[2]}`; 
                             } else {
-                                return `        ${parts[3]}`; // Exactly 8 spaces for indent
+                                return `        ${parts[3]}`; 
                             }
                         }
                         return strVal;
@@ -622,7 +634,7 @@
                     enabled: true,
                     formatter: function(val, opts) {
                         const d = opts.w.globals.initialSeries[opts.seriesIndex].data[opts.dataPointIndex];
-                        if (d.isHeader) return ''; // Prevent printing exact time strings inside transparent header rows
+                        if (d.isHeader) return ''; 
                         
                         const startD = new Date(d.y[0]);
                         const endD = new Date(d.y[1]);
@@ -650,7 +662,7 @@
                     followCursor: true, 
                     custom: function({ series, seriesIndex, dataPointIndex, w }) {
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
-                        if (d.isHeader) return `<div style="display:none;"></div>`; // Hide tooltip for header rows
+                        if (d.isHeader) return `<div style="display:none;"></div>`; 
                         
                         const startD = new Date(d.y[0]);
                         const endD = new Date(d.y[1]);
