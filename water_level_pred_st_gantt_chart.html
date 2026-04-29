@@ -16,13 +16,13 @@
             flex-direction: column;
         }
         
-        /* UI Bar - Made Compact */
+        /* UI Bar - Compact */
         #ui_controls {
             flex: 0 0 auto; 
             display: flex;
             flex-wrap: wrap;
-            gap: 10px; /* Reduced gap */
-            padding: 10px 15px; /* Reduced padding */
+            gap: 10px;
+            padding: 10px 15px;
             background-color: #222;
             border-bottom: 1px solid #444;
             align-items: center;
@@ -43,7 +43,7 @@
         }
         #ui_controls button:hover { background-color: #0076d1; }
 
-        /* Custom Multi-Select - Made Compact */
+        /* Custom Multi-Select */
         .custom-select-wrapper { position: relative; width: 170px; user-select: none; }
         .custom-select-box {
             background-color: #333; color: #fff; border: 1px solid #555;
@@ -66,7 +66,7 @@
         .custom-select-options label:hover { background-color: #444; color: #fff; }
         .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
 
-        /* Rocker Groups (Dates & Lines) - Made Compact */
+        /* Rocker Groups (Dates & Lines) */
         .rocker-group { display: flex; align-items: center; gap: 4px; }
         .rocker-group button { padding: 0 8px; font-size: 11px; background-color: #444; height: 28px; border-radius: 4px; }
         .rocker-group button:hover { background-color: #555; }
@@ -284,7 +284,15 @@
                 const res = await fetch(`${featureServiceUrl}?${params.toString()}`);
                 const data = await res.json();
                 if (data.features) {
-                    const uniqueVals = [...new Set(data.features.map(f => f.attributes[field]).filter(v => v))].sort();
+                    
+                    // FORCE CASE-INSENSITIVE DEDUPLICATION FOR SOURCE AND DATUM
+                    let rawVals = data.features.map(f => f.attributes[field]).filter(v => v);
+                    if (field === 'source' || field === 'datum') {
+                        rawVals = rawVals.map(v => String(v).toUpperCase());
+                    }
+                    
+                    const uniqueVals = [...new Set(rawVals)].sort();
+                    
                     if (field === 'project' || field === 'line_name') {
                         const paramName = field === 'line_name' ? 'line' : 'project';
                         const container = document.getElementById(`filter-${paramName}-options`);
@@ -311,9 +319,17 @@
                                 opt.value = val; opt.textContent = val;
                                 selectEl.appendChild(opt);
                             });
-                            // Keep selection if it still exists, otherwise clear it
-                            if (currentVal && uniqueVals.includes(currentVal)) selectEl.value = currentVal;
-                            else { selectEl.value = ""; const url = new URL(window.location); url.searchParams.delete(field); window.history.replaceState({}, '', url); }
+                            
+                            const matchedVal = currentVal ? uniqueVals.find(v => v.toUpperCase() === currentVal.toUpperCase()) : null;
+                            
+                            if (matchedVal) {
+                                selectEl.value = matchedVal;
+                            } else { 
+                                selectEl.value = ""; 
+                                const url = new URL(window.location); 
+                                url.searchParams.delete(field); 
+                                window.history.replaceState({}, '', url); 
+                            }
                         }
                     }
                 }
@@ -329,7 +345,6 @@
             const url = new URL(window.location);
             let urlChanged = false;
 
-            // Date defaults
             let currentDateParam = url.searchParams.get('date_');
             if (!currentDateParam || currentDateParam === "null") {
                 currentDateParam = getTodayString();
@@ -339,14 +354,12 @@
             document.getElementById('filter-date_').value = currentDateParam;
             updateTimezoneLabels(currentDateParam);
 
-            // Source defaults to pydro explicitly
             let currentSourceParam = url.searchParams.get('source');
             if (!currentSourceParam || currentSourceParam === "null") {
-                url.searchParams.set('source', 'pydro');
+                url.searchParams.set('source', 'PYDRO');
                 urlChanged = true;
             }
 
-            // Project Checkbox logic
             let currentProjectParam = url.searchParams.get('project');
             if (currentProjectParam && currentProjectParam !== "null") {
                 const projArray = currentProjectParam.split(',');
@@ -389,10 +402,10 @@
             const todayStr = getTodayString();
             
             url.searchParams.set('date_', todayStr);
-            url.searchParams.set('source', 'pydro'); // DEFAULT TO pydro ON RESET
+            url.searchParams.set('source', 'PYDRO'); 
             window.history.pushState({}, '', url);
 
-            document.getElementById('filter-source').value = 'pydro'; // DEFAULT TO pydro ON RESET
+            document.getElementById('filter-source').value = 'PYDRO'; 
             document.getElementById('filter-datum').value = '';
             document.getElementById('filter-tz').value = 'local';
             document.getElementById('filter-date_').value = todayStr;
@@ -461,6 +474,9 @@
                     } else if (key === 'line') {
                         const arr = val.split(',').map(l => `'${l}'`).join(',');
                         sqlWhere += ` AND line_name IN (${arr})`;
+                    } else if (key === 'source' || key === 'datum') {
+                        // FORCE CASE-INSENSITIVE SQL MATCHING
+                        sqlWhere += ` AND UPPER(${key}) = '${val.toUpperCase()}'`;
                     } else {
                         sqlWhere += ` AND ${key} = '${val}'`;
                     }
