@@ -358,11 +358,8 @@
                     } else {
                         const selectEl = document.getElementById(`filter-${field}`);
                         if (selectEl) {
-                            // Dashboard Override 1: Aggressively pull PYDRO as fallback if not in URL
-                            let urlVal = new URL(window.location).searchParams.get(field); 
-                            if (field === 'source' && (!urlVal || urlVal === "" || urlVal === "null")) {
-                                urlVal = 'PYDRO';
-                            }
+                            // Dashboard Override 1 removed
+                            let urlVal = new URL(window.location).searchParams.get(field);
                             
                             while (selectEl.options.length > 1) selectEl.remove(1);
                             uniqueVals.forEach(val => {
@@ -409,12 +406,8 @@
             document.getElementById('filter-date_').value = currentDateParam;
             updateTimezoneLabels(currentDateParam);
 
-            // Dashboard Override 2: Hard set URL to PYDRO on initial load if stripped by iframe
+            // Dashboard Override 2 removed
             let currentSourceParam = url.searchParams.get('source');
-            if (!currentSourceParam || currentSourceParam === "null" || currentSourceParam === "") {
-                url.searchParams.set('source', 'PYDRO');
-                urlChanged = true;
-            }
 
             let currentProjectParam = url.searchParams.get('project');
             if (currentProjectParam && currentProjectParam !== "null") {
@@ -456,10 +449,10 @@
             const todayStr = getTodayString();
             
             url.searchParams.set('date_', todayStr);
-            url.searchParams.set('source', 'PYDRO'); 
+            url.searchParams.delete('source');
             window.history.pushState({}, '', url);
 
-            document.getElementById('filter-source').value = 'PYDRO'; 
+            document.getElementById('filter-source').value = ''; 
             document.getElementById('filter-datum').value = '';
             document.getElementById('filter-tz').value = 'local';
             document.getElementById('filter-date_').value = todayStr;
@@ -558,10 +551,7 @@
             filters.forEach(key => {
                 let val = urlParams.get(key);
                 
-                // Dashboard Override 3: Force PYDRO directly into the ArcGIS SQL Query if URL param is missing
-                if (key === 'source' && (!val || val === "" || val === "null")) {
-                    val = 'PYDRO';
-                }
+                // Dashboard Override 3 removed
 
                 if (val && val !== "" && val !== "null") {
                     if (key === 'project') {
