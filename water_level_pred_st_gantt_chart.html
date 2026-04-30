@@ -621,7 +621,7 @@
 
             const rawChartData = features.map(f => {
                 const a = f.attributes;
-                const sName = (a.source || 'STOFS').toUpperCase();
+                const sName = (a.source || 'UNKNOWN').toUpperCase();
                 const dType = (a.datum || 'N/A').toUpperCase();
                 const projName = a.project || "Unknown Project";
                 
