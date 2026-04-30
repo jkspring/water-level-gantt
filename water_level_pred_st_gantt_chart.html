@@ -154,14 +154,12 @@
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
 
-        // --- TOOLTIP BOUNDS ENFORCER (Prevents tooltip from clipping at edges of scrollbox) ---
         let tooltipObserver = null;
         function enforceTooltipBounds() {
             const chartWrapper = document.getElementById('chart_wrapper');
             const tooltip = document.querySelector('#chart_container .apexcharts-tooltip');
             if (!chartWrapper || !tooltip || !tooltip.classList.contains('apexcharts-active')) return;
 
-            // Calculate boundaries relative to scroll position
             const minTop = chartWrapper.scrollTop + 10;
             const maxTop = chartWrapper.scrollTop + chartWrapper.clientHeight - tooltip.offsetHeight - 10;
             const minLeft = chartWrapper.scrollLeft + 10;
@@ -174,14 +172,12 @@
             let newTop = currentTop;
             let newLeft = currentLeft;
 
-            // Clamp positions
             if (currentTop < minTop) newTop = minTop;
             else if (currentTop > maxTop) newTop = maxTop;
 
             if (currentLeft < minLeft) newLeft = minLeft;
             else if (currentLeft > maxLeft) newLeft = maxLeft;
 
-            // Override style safely
             if (newTop !== currentTop || newLeft !== currentLeft) {
                 if (tooltipObserver) tooltipObserver.disconnect();
                 if (newTop !== currentTop) tooltip.style.top = newTop + 'px';
@@ -362,7 +358,11 @@
                     } else {
                         const selectEl = document.getElementById(`filter-${field}`);
                         if (selectEl) {
-                            const urlVal = new URL(window.location).searchParams.get(field); 
+                            // Dashboard Override 1: Aggressively pull PYDRO as fallback if not in URL
+                            let urlVal = new URL(window.location).searchParams.get(field); 
+                            if (field === 'source' && (!urlVal || urlVal === "" || urlVal === "null")) {
+                                urlVal = 'PYDRO';
+                            }
                             
                             while (selectEl.options.length > 1) selectEl.remove(1);
                             uniqueVals.forEach(val => {
@@ -375,6 +375,10 @@
                             
                             if (matchedVal) {
                                 selectEl.value = matchedVal;
+                                // Force dashboard URL to keep memory of this parameter
+                                const syncUrl = new URL(window.location);
+                                syncUrl.searchParams.set(field, matchedVal);
+                                window.history.replaceState({}, '', syncUrl);
                             } else { 
                                 selectEl.value = ""; 
                                 const url = new URL(window.location); 
@@ -405,8 +409,9 @@
             document.getElementById('filter-date_').value = currentDateParam;
             updateTimezoneLabels(currentDateParam);
 
+            // Dashboard Override 2: Hard set URL to PYDRO on initial load if stripped by iframe
             let currentSourceParam = url.searchParams.get('source');
-            if (!currentSourceParam || currentSourceParam === "null") {
+            if (!currentSourceParam || currentSourceParam === "null" || currentSourceParam === "") {
                 url.searchParams.set('source', 'PYDRO');
                 urlChanged = true;
             }
@@ -551,7 +556,13 @@
             const filters = ['project', 'datum', 'line_name', 'date_', 'line', 'source'];
             
             filters.forEach(key => {
-                const val = urlParams.get(key);
+                let val = urlParams.get(key);
+                
+                // Dashboard Override 3: Force PYDRO directly into the ArcGIS SQL Query if URL param is missing
+                if (key === 'source' && (!val || val === "" || val === "null")) {
+                    val = 'PYDRO';
+                }
+
                 if (val && val !== "" && val !== "null") {
                     if (key === 'project') {
                         const arr = val.split(',').map(p => `'${p}'`).join(',');
@@ -834,7 +845,6 @@
             topChart.render();
             bottomChart.render();
             
-            // Render main chart, then trigger the bounds observer
             mainChart.render().then(() => {
                 setupTooltipObserver();
             });
