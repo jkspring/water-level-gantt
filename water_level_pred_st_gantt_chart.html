@@ -154,6 +154,57 @@
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
 
+        // --- TOOLTIP BOUNDS ENFORCER (Prevents tooltip from clipping at edges of scrollbox) ---
+        let tooltipObserver = null;
+        function enforceTooltipBounds() {
+            const chartWrapper = document.getElementById('chart_wrapper');
+            const tooltip = document.querySelector('#chart_container .apexcharts-tooltip');
+            if (!chartWrapper || !tooltip || !tooltip.classList.contains('apexcharts-active')) return;
+
+            // Calculate boundaries relative to scroll position
+            const minTop = chartWrapper.scrollTop + 10;
+            const maxTop = chartWrapper.scrollTop + chartWrapper.clientHeight - tooltip.offsetHeight - 10;
+            const minLeft = chartWrapper.scrollLeft + 10;
+            const maxLeft = chartWrapper.scrollLeft + chartWrapper.clientWidth - tooltip.offsetWidth - 10;
+
+            let currentTop = parseFloat(tooltip.style.top);
+            let currentLeft = parseFloat(tooltip.style.left);
+            if (isNaN(currentTop) || isNaN(currentLeft)) return;
+            
+            let newTop = currentTop;
+            let newLeft = currentLeft;
+
+            // Clamp positions
+            if (currentTop < minTop) newTop = minTop;
+            else if (currentTop > maxTop) newTop = maxTop;
+
+            if (currentLeft < minLeft) newLeft = minLeft;
+            else if (currentLeft > maxLeft) newLeft = maxLeft;
+
+            // Override style safely
+            if (newTop !== currentTop || newLeft !== currentLeft) {
+                if (tooltipObserver) tooltipObserver.disconnect();
+                if (newTop !== currentTop) tooltip.style.top = newTop + 'px';
+                if (newLeft !== currentLeft) tooltip.style.left = newLeft + 'px';
+                if (tooltipObserver) tooltipObserver.observe(tooltip, { attributes: true, attributeFilter: ['style'] });
+            }
+        }
+
+        function setupTooltipObserver() {
+            if (tooltipObserver) { tooltipObserver.disconnect(); tooltipObserver = null; }
+            
+            const tooltip = document.querySelector('#chart_container .apexcharts-tooltip');
+            if (!tooltip) {
+                setTimeout(setupTooltipObserver, 100);
+                return;
+            }
+
+            tooltipObserver = new MutationObserver(enforceTooltipBounds);
+            tooltipObserver.observe(tooltip, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        document.getElementById('chart_wrapper').addEventListener('scroll', enforceTooltipBounds);
+
         function sanitizeArcGISParams() {
             const url = new URL(window.location);
             let cleaned = false;
@@ -417,7 +468,6 @@
             updateDependentDropdowns().then(() => fetchWaterLevels());
         }
 
-        /* --- THE FIX: FORCED RIGHT-ALIGN TEXT ANCHOR FOR EVERY SINGLE ROW --- */
         function colorizeYAxisText() {
             const labels = document.querySelectorAll('#chart_container .apexcharts-yaxis-label');
             labels.forEach(label => {
@@ -425,7 +475,6 @@
                 let targetColor = '#888888'; 
                 let isHeader = text.includes('PYDRO') || text.includes('STOFS');
                 
-                // Force parent label container to anchor at the end
                 label.setAttribute('text-anchor', 'end');
                 label.style.textAnchor = 'end';
                 
@@ -445,7 +494,6 @@
                             t.style.fill = targetColor; 
                             t.style.fontWeight = 'bold';
                             
-                            // Force each multi-line segment to anchor right
                             t.setAttribute('text-anchor', 'end'); 
                             t.style.textAnchor = 'end';
                             t.setAttribute('x', parentX);
@@ -474,7 +522,6 @@
                         t.style.fill = targetColor; 
                         t.style.fontWeight = 'normal';
                         
-                        // Force every flight-line row to explicitly anchor right
                         t.setAttribute('text-anchor', 'end'); 
                         t.style.textAnchor = 'end';
                         t.setAttribute('x', parentX);
@@ -542,7 +589,20 @@
             const selectedOption = tzSelect.options[tzSelect.selectedIndex];
             const fullTzName = selectedOption ? selectedOption.text : tzSetting;
 
-            let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: useApexUTC }, tickAmount: 24 };
+            let xAxisConfig = { 
+                type: 'datetime', 
+                tickAmount: 24,
+                labels: { 
+                    datetimeUTC: useApexUTC,
+                    datetimeFormatter: {
+                        year: 'yyyy',
+                        month: "MMM 'yy",
+                        day: 'dd MMM',
+                        hour: 'HH:mm',
+                        minute: 'HH:mm'
+                    }
+                }
+            };
             let minTime = new Date().setHours(0,0,0,0); 
 
             if (selectedDate && selectedDate !== "null") {
@@ -579,7 +639,11 @@
                     project: projName, datum: dType, source: sName, originalLine: a.line_name,
                     isHeader: false
                 };
-            }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
+            }).filter(item => {
+                if (isNaN(item.y[0]) || isNaN(item.y[1])) return false;
+                if (item.y[1] < xAxisConfig.min || item.y[0] > xAxisConfig.max) return false;
+                return true;
+            });
 
             const chartData = [...rawChartData];
             const headers = new Set();
@@ -609,7 +673,9 @@
                 if (a.isHeader && !b.isHeader) return -1;
                 if (!a.isHeader && b.isHeader) return 1;
                 
-                return a.originalLine.localeCompare(b.originalLine);
+                if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
+                
+                return a.y[0] - b.y[0];
             });
 
             const uniqueRows = new Set(chartData.map(d => d.x)).size;
@@ -660,7 +726,7 @@
 
             const topOptions = {
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
-                chart: { type: 'rangeBar', height: 60, group: 'sync-gantt', id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
+                chart: { type: 'rangeBar', height: 60, id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: useApexUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
@@ -671,7 +737,7 @@
 
             const bottomOptions = {
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
-                chart: { type: 'rangeBar', height: 50, group: 'sync-gantt', id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
+                chart: { type: 'rangeBar', height: 50, id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: useApexUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
@@ -680,12 +746,24 @@
                 tooltip: { enabled: false }
             };
 
+            const syncAxes = function(chartContext, { xaxis }) {
+                if (xaxis && xaxis.min !== undefined && xaxis.max !== undefined) {
+                    ApexCharts.exec('top-chart', 'zoomX', xaxis.min, xaxis.max);
+                    ApexCharts.exec('bottom-chart', 'zoomX', xaxis.min, xaxis.max);
+                }
+            };
+
             const mainOptions = {
                 series: [{ data: chartData }],
                 chart: { 
-                    type: 'rangeBar', height: calculatedHeight, group: 'sync-gantt', id: 'main-chart',
+                    type: 'rangeBar', height: calculatedHeight, id: 'main-chart',
                     toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
-                    events: { mounted: function() { colorizeYAxisText(); }, updated: function() { colorizeYAxisText(); } }
+                    events: { 
+                        mounted: function() { colorizeYAxisText(); }, 
+                        updated: function() { colorizeYAxisText(); },
+                        zoomed: syncAxes,
+                        scrolled: syncAxes
+                    }
                 },
                 plotOptions: { bar: { horizontal: true, barHeight: '40%' } }, 
                 
@@ -749,9 +827,17 @@
             if (topChart) { topChart.destroy(); }
             if (bottomChart) { bottomChart.destroy(); }
 
-            topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions); topChart.render();
-            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions); mainChart.render();
-            bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions); bottomChart.render();
+            topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions);
+            bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions);
+            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions); 
+            
+            topChart.render();
+            bottomChart.render();
+            
+            // Render main chart, then trigger the bounds observer
+            mainChart.render().then(() => {
+                setupTooltipObserver();
+            });
         }
 
         buildUI();
