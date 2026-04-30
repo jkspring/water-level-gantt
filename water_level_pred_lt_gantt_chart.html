@@ -152,6 +152,57 @@
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
 
+        // --- TOOLTIP BOUNDS ENFORCER (Prevents tooltip from clipping at edges of scrollbox) ---
+        let tooltipObserver = null;
+        function enforceTooltipBounds() {
+            const chartWrapper = document.getElementById('chart_wrapper');
+            const tooltip = document.querySelector('#chart_container .apexcharts-tooltip');
+            if (!chartWrapper || !tooltip || !tooltip.classList.contains('apexcharts-active')) return;
+
+            // Calculate boundaries relative to scroll position
+            const minTop = chartWrapper.scrollTop + 10;
+            const maxTop = chartWrapper.scrollTop + chartWrapper.clientHeight - tooltip.offsetHeight - 10;
+            const minLeft = chartWrapper.scrollLeft + 10;
+            const maxLeft = chartWrapper.scrollLeft + chartWrapper.clientWidth - tooltip.offsetWidth - 10;
+
+            let currentTop = parseFloat(tooltip.style.top);
+            let currentLeft = parseFloat(tooltip.style.left);
+            if (isNaN(currentTop) || isNaN(currentLeft)) return;
+            
+            let newTop = currentTop;
+            let newLeft = currentLeft;
+
+            // Clamp positions
+            if (currentTop < minTop) newTop = minTop;
+            else if (currentTop > maxTop) newTop = maxTop;
+
+            if (currentLeft < minLeft) newLeft = minLeft;
+            else if (currentLeft > maxLeft) newLeft = maxLeft;
+
+            // Override style safely
+            if (newTop !== currentTop || newLeft !== currentLeft) {
+                if (tooltipObserver) tooltipObserver.disconnect();
+                if (newTop !== currentTop) tooltip.style.top = newTop + 'px';
+                if (newLeft !== currentLeft) tooltip.style.left = newLeft + 'px';
+                if (tooltipObserver) tooltipObserver.observe(tooltip, { attributes: true, attributeFilter: ['style'] });
+            }
+        }
+
+        function setupTooltipObserver() {
+            if (tooltipObserver) { tooltipObserver.disconnect(); tooltipObserver = null; }
+            
+            const tooltip = document.querySelector('#chart_container .apexcharts-tooltip');
+            if (!tooltip) {
+                setTimeout(setupTooltipObserver, 100);
+                return;
+            }
+
+            tooltipObserver = new MutationObserver(enforceTooltipBounds);
+            tooltipObserver.observe(tooltip, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        document.getElementById('chart_wrapper').addEventListener('scroll', enforceTooltipBounds);
+
         function sanitizeArcGISParams() {
             const url = new URL(window.location);
             let cleaned = false;
@@ -518,7 +569,11 @@
                     project: projName, datum: dType, source: sName, originalLine: a.line_name,
                     isHeader: false
                 };
-            }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
+            }).filter(item => {
+                if (isNaN(item.y[0]) || isNaN(item.y[1])) return false;
+                if (item.y[1] < minTime || item.y[0] > maxTime) return false;
+                return true;
+            });
 
             const chartData = [...rawChartData];
             const headers = new Set();
@@ -548,7 +603,9 @@
                 if (a.isHeader && !b.isHeader) return -1;
                 if (!a.isHeader && b.isHeader) return 1;
                 
-                return a.originalLine.localeCompare(b.originalLine);
+                if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
+                
+                return a.y[0] - b.y[0];
             });
 
             const uniqueRows = new Set(chartData.map(d => d.x)).size;
@@ -585,41 +642,25 @@
             const nowAnnotationLine = { x: nowTime, strokeDashArray: 0, borderColor: '#FF4560', borderWidth: 2 };
 
             const dynamicXAxis = {
-                type: 'numeric', 
-                min: minTime, max: maxTime, tickAmount: 25,  
+                type: 'datetime', 
+                min: minTime, max: maxTime, tickAmount: 12,  
                 labels: {
                     style: { colors: '#ccc' },
                     hideOverlappingLabels: true, 
-                    formatter: function(val, timestamp, opts) {
-                        if (!val) return '';
-                        let d = new Date(val);
-                        const dH = useApexUTC ? d.getUTCHours() : d.getHours();
-                        const dM = useApexUTC ? d.getUTCMinutes() : d.getMinutes();
-                        const dDay = useApexUTC ? d.getUTCDate() : d.getDate();
-                        const dMonth = useApexUTC ? d.getUTCMonth() : d.getMonth();
-                        const dYear = useApexUTC ? d.getUTCFullYear() : d.getFullYear();
-                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                        
-                        let currentMin = minTime; let currentMax = maxTime;
-                        if (opts && opts.w && opts.w.globals && opts.w.globals.minX !== undefined) {
-                            currentMin = opts.w.globals.minX;
-                            currentMax = opts.w.globals.maxX;
-                        }
-                        const rangeDays = (currentMax - currentMin) / 86400000;
-                        const dayStr = String(dDay).padStart(2, '0');
-                        const monthStr = months[dMonth];
-                        const timeStr = `${String(dH).padStart(2, '0')}:${String(dM).padStart(2, '0')}`;
-                        if (rangeDays > 60) return `${monthStr} '${String(dYear).slice(-2)}`;
-                        if (rangeDays > 14) return `${dayStr} ${monthStr}`;
-                        if (rangeDays > 3) return `${dayStr} ${monthStr} ${timeStr}`;
-                        return timeStr; 
+                    datetimeUTC: useApexUTC, 
+                    datetimeFormatter: {
+                        year: 'yyyy',
+                        month: "MMM",
+                        day: 'dd MMM',
+                        hour: 'dd MMM HH:mm',
+                        minute: 'HH:mm'
                     }
                 }
             };
 
             const topOptions = {
                 series: [{ data: [{ x: 'Dummy', y: [minTime, maxTime] }] }],
-                chart: { type: 'rangeBar', height: 60, group: 'sync-gantt', id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
+                chart: { type: 'rangeBar', height: 60, id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...dynamicXAxis, position: 'top' },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
@@ -629,7 +670,7 @@
 
             const bottomOptions = {
                 series: [{ data: [{ x: 'Dummy', y: [minTime, maxTime] }] }],
-                chart: { type: 'rangeBar', height: 50, group: 'sync-gantt', id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
+                chart: { type: 'rangeBar', height: 50, id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...dynamicXAxis, position: 'bottom' },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
@@ -637,12 +678,24 @@
                 tooltip: { enabled: false }
             };
 
+            const syncAxes = function(chartContext, { xaxis }) {
+                if (xaxis && xaxis.min !== undefined && xaxis.max !== undefined) {
+                    ApexCharts.exec('top-chart', 'zoomX', xaxis.min, xaxis.max);
+                    ApexCharts.exec('bottom-chart', 'zoomX', xaxis.min, xaxis.max);
+                }
+            };
+
             const mainOptions = {
                 series: [{ data: chartData }],
                 chart: { 
-                    type: 'rangeBar', height: calculatedHeight, group: 'sync-gantt', id: 'main-chart',
+                    type: 'rangeBar', height: calculatedHeight, id: 'main-chart',
                     toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
-                    events: { mounted: function() { colorizeYAxisText(); }, updated: function() { colorizeYAxisText(); } },
+                    events: { 
+                        mounted: function() { colorizeYAxisText(); }, 
+                        updated: function() { colorizeYAxisText(); },
+                        zoomed: syncAxes,
+                        scrolled: syncAxes
+                    },
                     animations: { enabled: false }
                 },
                 plotOptions: { bar: { horizontal: true, barHeight: '50%' } }, 
@@ -680,10 +733,16 @@
             if (bottomChart) bottomChart.destroy();
 
             topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions);
-            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions);
             bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions);
+            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions);
             
-            topChart.render(); mainChart.render(); bottomChart.render();
+            topChart.render(); 
+            bottomChart.render(); 
+            
+            // Render main chart, then trigger the bounds observer
+            mainChart.render().then(() => {
+                setupTooltipObserver();
+            });
         }
 
         buildUI();
