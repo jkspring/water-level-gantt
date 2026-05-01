@@ -107,6 +107,11 @@
         #top_axis_wrapper::-webkit-scrollbar-thumb, #bottom_axis_wrapper::-webkit-scrollbar-thumb { background: transparent; border: none; }
         #top_axis_wrapper::-webkit-scrollbar-track, #bottom_axis_wrapper::-webkit-scrollbar-track { border-left: transparent; }
 
+        /* Guarantee tooltip stays on top */
+        .apexcharts-tooltip {
+            z-index: 9999 !important;
+        }
+
     </style>
 </head>
 <body>
@@ -145,10 +150,14 @@
             <button onclick="adjustDate(1)" title="Next Day">&#9654;</button>
         </div>
         
-        <label class="checkbox-toggle" title="Only show the Pydro run closest to 00Z, 06Z, 12Z, and 18Z">
-            <input type="checkbox" id="filter-pydro-synoptic" checked>
-            Synoptic Pydro Runs Only
-        </label>
+        <select id="filter-synoptic-select" title="Filter runs to synoptic times">
+            <option value="none">All Runs</option>
+            <option value="all" selected>All Synoptic Runs</option>
+            <option value="0">00Z Synoptic Only</option>
+            <option value="6">06Z Synoptic Only</option>
+            <option value="12">12Z Synoptic Only</option>
+            <option value="18">18Z Synoptic Only</option>
+        </select>
         
         <label class="checkbox-toggle" title="Toggle between UTC and your computer's Local Time">
             <input type="checkbox" id="filter-time-utc">
@@ -169,6 +178,53 @@
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
         let currentFeatures = []; 
+
+        let tooltipObserver = null;
+        function enforceTooltipBounds() {
+            const chartWrapper = document.getElementById('chart_wrapper');
+            const tooltip = document.querySelector('#chart_container .apexcharts-tooltip');
+            if (!chartWrapper || !tooltip || !tooltip.classList.contains('apexcharts-active')) return;
+
+            const minTop = chartWrapper.scrollTop + 10;
+            const maxTop = chartWrapper.scrollTop + chartWrapper.clientHeight - tooltip.offsetHeight - 10;
+            const minLeft = chartWrapper.scrollLeft + 10;
+            const maxLeft = chartWrapper.scrollLeft + chartWrapper.clientWidth - tooltip.offsetWidth - 10;
+
+            let currentTop = parseFloat(tooltip.style.top);
+            let currentLeft = parseFloat(tooltip.style.left);
+            if (isNaN(currentTop) || isNaN(currentLeft)) return;
+            
+            let newTop = currentTop;
+            let newLeft = currentLeft;
+
+            if (currentTop < minTop) newTop = minTop;
+            else if (currentTop > maxTop) newTop = maxTop;
+
+            if (currentLeft < minLeft) newLeft = minLeft;
+            else if (currentLeft > maxLeft) newLeft = maxLeft;
+
+            if (newTop !== currentTop || newLeft !== currentLeft) {
+                if (tooltipObserver) tooltipObserver.disconnect();
+                if (newTop !== currentTop) tooltip.style.top = newTop + 'px';
+                if (newLeft !== currentLeft) tooltip.style.left = newLeft + 'px';
+                if (tooltipObserver) tooltipObserver.observe(tooltip, { attributes: true, attributeFilter: ['style'] });
+            }
+        }
+
+        function setupTooltipObserver() {
+            if (tooltipObserver) { tooltipObserver.disconnect(); tooltipObserver = null; }
+            
+            const tooltip = document.querySelector('#chart_container .apexcharts-tooltip');
+            if (!tooltip) {
+                setTimeout(setupTooltipObserver, 100);
+                return;
+            }
+
+            tooltipObserver = new MutationObserver(enforceTooltipBounds);
+            tooltipObserver.observe(tooltip, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        document.getElementById('chart_wrapper').addEventListener('scroll', enforceTooltipBounds);
 
         function toggleDropdown(id) { document.getElementById(id).classList.toggle('open'); }
 
@@ -344,18 +400,14 @@
         }
 
         async function buildUI() {
+            // Load essential options first to determine defaults
             await loadOptions('project', false);
+            await loadOptions('run', false); 
+            
             const url = new URL(window.location);
             let urlChanged = false;
 
-            let currentDateParam = url.searchParams.get('date_');
-            if (!currentDateParam || currentDateParam === "null") {
-                currentDateParam = getTodayString();
-                url.searchParams.set('date_', currentDateParam);
-                urlChanged = true;
-            }
-            document.getElementById('filter-date_').value = currentDateParam;
-
+            // Handle Project Selection
             let currentProjectParam = url.searchParams.get('project');
             if (!currentProjectParam || currentProjectParam === "null") {
                 const firstBox = document.querySelector('.project-checkbox');
@@ -367,6 +419,30 @@
                 }
             }
 
+            // Determine what the absolute latest run date is from the loaded dataset
+            const runSelect = document.getElementById('filter-run');
+            let latestRunDate = getTodayString();
+            if (runSelect && runSelect.options.length > 1) {
+                // index 0 is "All", index 1 is the highest value due to descending sort
+                latestRunDate = runSelect.options[1].value;
+            }
+
+            // Default to the latest run date
+            let currentRunParam = url.searchParams.get('run');
+            if (!url.searchParams.has('run')) { 
+                currentRunParam = latestRunDate;
+                url.searchParams.set('run', currentRunParam);
+                urlChanged = true;
+            }
+
+            // Match calendar date to the active run date
+            let currentDateParam = url.searchParams.get('date_');
+            if (!url.searchParams.has('date_')) {
+                currentDateParam = currentRunParam ? currentRunParam.substring(0, 10) : getTodayString();
+                url.searchParams.set('date_', currentDateParam);
+                urlChanged = true;
+            }
+
             if (urlChanged) window.history.replaceState({}, '', url); 
             
             const projText = document.getElementById('project-select-text').innerText;
@@ -376,11 +452,13 @@
 
             ['source', 'datum', 'run'].forEach(param => {
                 const val = url.searchParams.get(param);
-                if (val && val !== "null") {
+                if (val !== null && val !== "null") {
                     const el = document.getElementById(`filter-${param}`);
                     if (el) el.value = val;
                 }
             });
+
+            document.getElementById('filter-date_').value = url.searchParams.get('date_');
 
             await updateDependentDropdowns();
 
@@ -395,8 +473,7 @@
                 });
             });
 
-            // Fast re-render when synoptic OR time toggle checkboxes are changed
-            document.getElementById('filter-pydro-synoptic').addEventListener('change', () => {
+            document.getElementById('filter-synoptic-select').addEventListener('change', () => {
                 if (currentFeatures.length > 0) processAndDraw(currentFeatures, document.getElementById('filter-date_').value);
             });
             document.getElementById('filter-time-utc').addEventListener('change', () => {
@@ -408,8 +485,14 @@
 
         function resetFilters() {
             const url = new URL(window.location.origin + window.location.pathname);
-            const todayStr = getTodayString();
-            url.searchParams.set('date_', todayStr);
+            
+            // Find latest run date from the dropdown to set as default
+            const runSelect = document.getElementById('filter-run');
+            let latestRunDate = getTodayString();
+            if (runSelect && runSelect.options.length > 1) {
+                latestRunDate = runSelect.options[1].value;
+            }
+            const latestDateOnly = latestRunDate.substring(0, 10);
             
             let firstProj = "";
             const projCheckboxes = document.querySelectorAll('.project-checkbox');
@@ -417,12 +500,16 @@
                 firstProj = projCheckboxes[0].value;
                 url.searchParams.set('project', firstProj);
             }
+            
+            url.searchParams.set('date_', latestDateOnly);
+            url.searchParams.set('run', latestRunDate);
             window.history.pushState({}, '', url);
 
             document.getElementById('filter-source').value = '';
             document.getElementById('filter-datum').value = '';
-            document.getElementById('filter-run').value = '';
-            document.getElementById('filter-date_').value = todayStr;
+            document.getElementById('filter-run').value = latestRunDate;
+            document.getElementById('filter-date_').value = latestDateOnly;
+            document.getElementById('filter-synoptic-select').value = 'all';
             
             projCheckboxes.forEach((cb, i) => cb.checked = (i === 0));
             document.querySelectorAll('.line-checkbox').forEach(cb => cb.checked = false);
@@ -439,30 +526,55 @@
         function colorizeYAxisText() {
             const labels = document.querySelectorAll('#chart_container .apexcharts-yaxis-label');
             labels.forEach(label => {
-                label.querySelectorAll('tspan').forEach(t => {
-                    const text = t.textContent || "";
-                    if (text.includes('PYDRO')) {
-                        t.setAttribute('fill', '#eb97d8'); 
-                        t.style.fill = '#eb97d8';
-                        t.style.fontWeight = 'bold';
-                    } else if (text.includes('STOFS')) {
-                        t.setAttribute('fill', '#80ecf0'); 
-                        t.style.fill = '#80ecf0';
-                        t.style.fontWeight = 'bold';
-                    } else if (text.includes('Run:')) {
-                        t.setAttribute('fill', '#aaaaaa'); 
-                        t.style.fill = '#aaaaaa';
+                label.setAttribute('text-anchor', 'end');
+                label.style.textAnchor = 'end';
+                
+                const tspans = label.querySelectorAll('tspan');
+                const parentX = label.getAttribute('x') || 0;
+                
+                if (tspans.length === 3) {
+                    // Line 1: Project Name
+                    tspans[0].setAttribute('fill', '#ffffff'); 
+                    tspans[0].style.fill = '#ffffff';
+                    tspans[0].style.fontWeight = 'bold';
+                    
+                    // Line 2: Run Date
+                    tspans[1].setAttribute('fill', '#aaaaaa'); 
+                    tspans[1].style.fill = '#aaaaaa';
+                    tspans[1].style.fontWeight = 'normal';
+                    
+                    // Line 3: Source | Datum
+                    const sText = tspans[2].textContent || "";
+                    let sCol = '#ffffff';
+                    if (sText.includes('PYDRO')) sCol = '#eb97d8';
+                    else if (sText.includes('STOFS')) sCol = '#80ecf0';
+                    
+                    tspans[2].setAttribute('fill', sCol); 
+                    tspans[2].style.fill = sCol;
+                    tspans[2].style.fontWeight = 'bold';
+
+                    tspans.forEach((t, i) => {
+                        t.setAttribute('text-anchor', 'end'); 
+                        t.style.textAnchor = 'end';
+                        t.setAttribute('x', parentX);
+                        if (i === 0) t.setAttribute('dy', '-0.5em'); 
+                        if (i === 1) t.setAttribute('dy', '1.2em');
+                        if (i === 2) t.setAttribute('dy', '1.2em');
+                    });
+                } else {
+                    label.setAttribute('fill', '#cccccc'); 
+                    label.style.fill = '#cccccc';
+                    label.style.fontWeight = 'normal';
+                    
+                    tspans.forEach(t => {
+                        t.setAttribute('fill', '#cccccc'); 
+                        t.style.fill = '#cccccc';
                         t.style.fontWeight = 'normal';
-                    } else if (text.includes('Line:')) {
-                        t.setAttribute('fill', '#e0e0e0'); 
-                        t.style.fill = '#e0e0e0';
-                        t.style.fontWeight = 'normal';
-                    } else {
-                        t.setAttribute('fill', '#ffffff'); 
-                        t.style.fill = '#ffffff';
-                        t.style.fontWeight = 'bold';
-                    }
-                });
+                        t.setAttribute('text-anchor', 'end'); 
+                        t.style.textAnchor = 'end';
+                        t.setAttribute('x', parentX);
+                    });
+                }
             });
         }
 
@@ -512,47 +624,61 @@
 
         function processAndDraw(features, selectedDate) {
             
-            // Grab current state of the UTC toggle
             const useUTC = document.getElementById('filter-time-utc') ? document.getElementById('filter-time-utc').checked : false;
             
             let displayFeatures = [...features];
 
-            // Filter Pydro to closest synoptic times
-            const synopticCheckbox = document.getElementById('filter-pydro-synoptic');
-            if (synopticCheckbox && synopticCheckbox.checked) {
-                const validPydroRuns = new Set();
+            const synopticSelect = document.getElementById('filter-synoptic-select');
+            const synopticVal = synopticSelect ? synopticSelect.value : 'all';
+
+            // Filter valid runs by breaking them down by distinct source
+            if (synopticVal !== 'none') {
+                const validRuns = new Set();
+                const sources = [...new Set(displayFeatures.map(f => (f.attributes.source || 'UNKNOWN').toUpperCase()))];
                 
-                const pydroRuns = [...new Set(displayFeatures.filter(f => (f.attributes.source || '').toUpperCase() === 'PYDRO').map(f => f.attributes.run))];
-                const pydroRunTimes = pydroRuns.map(r => ({ run: r, time: new Date(r).getTime() }));
-                
-                const uniqueDates = [...new Set(displayFeatures.map(f => {
-                    let d = f.attributes.date_;
-                    if (!d && f.attributes.run) d = f.attributes.run.split('T')[0];
-                    return d;
-                }).filter(v => v))];
-                
-                uniqueDates.forEach(dateStr => {
-                    const targets = [0, 6, 12, 18].map(h => new Date(`${dateStr}T${String(h).padStart(2, '0')}:00:00Z`).getTime());
+                sources.forEach(src => {
+                    const sourceFeatures = displayFeatures.filter(f => (f.attributes.source || '').toUpperCase() === src);
                     
-                    targets.forEach(targetTime => {
-                        let closestRun = null;
-                        let minDiff = Infinity;
+                    const uniqueRuns = [...new Set(sourceFeatures.map(f => f.attributes.run))];
+                    
+                    const runTimes = uniqueRuns.map(r => {
+                        // Force parse as UTC to ensure matching with target synoptic Z times
+                        let isoStr = r;
+                        if (isoStr && !isoStr.includes('T')) isoStr = isoStr.replace(' ', 'T');
+                        if (isoStr && !isoStr.includes('Z') && !isoStr.includes('+') && !isoStr.includes('-')) {
+                            isoStr += 'Z'; 
+                        }
+                        return { run: r, time: new Date(isoStr).getTime() };
+                    });
+                    
+                    const uniqueRunDates = [...new Set(sourceFeatures.map(f => {
+                        return f.attributes.run ? f.attributes.run.substring(0, 10) : null;
+                    }).filter(v => v))];
+                    
+                    let targetHours = [];
+                    if (synopticVal === 'all') targetHours = [0, 6, 12, 18];
+                    else targetHours = [parseInt(synopticVal, 10)];
+                    
+                    uniqueRunDates.forEach(dateStr => {
+                        const targets = targetHours.map(h => new Date(`${dateStr}T${String(h).padStart(2, '0')}:00:00Z`).getTime());
                         
-                        pydroRunTimes.forEach(p => {
-                            const diff = Math.abs(p.time - targetTime);
-                            if (diff < minDiff && diff <= 4 * 60 * 60 * 1000) { 
-                                minDiff = diff;
-                                closestRun = p.run;
-                            }
+                        targets.forEach(targetTime => {
+                            let closestRun = null;
+                            let minDiff = Infinity;
+                            
+                            runTimes.forEach(p => {
+                                const diff = Math.abs(p.time - targetTime);
+                                if (diff < minDiff && diff <= 4 * 60 * 60 * 1000) { 
+                                    minDiff = diff;
+                                    closestRun = p.run;
+                                }
+                            });
+                            if (closestRun) validRuns.add(closestRun);
                         });
-                        if (closestRun) validPydroRuns.add(closestRun);
                     });
                 });
                 
-                displayFeatures = displayFeatures.filter(f => {
-                    if ((f.attributes.source || '').toUpperCase() !== 'PYDRO') return true;
-                    return validPydroRuns.has(f.attributes.run);
-                });
+                displayFeatures = displayFeatures.filter(f => validRuns.has(f.attributes.run));
             }
 
             const datumColors = { 
@@ -561,14 +687,13 @@
                 'BMHW': '#FFAB00'  
             };
 
-            const chartData = displayFeatures.map(f => {
+            const rawChartData = displayFeatures.map(f => {
                 const a = f.attributes;
                 const sName = (a.source || 'STOFS').toUpperCase();
                 const dType = (a.datum || 'N/A').toUpperCase();
                 const projName = a.project || "Unknown Project";
                 const rawRun = a.run || "N/A";
                 
-                // Formats Run Time to either UTC or Local depending on toggle
                 let displayRunTime = rawRun;
                 if (a.run) {
                     const runD = new Date(a.run);
@@ -584,12 +709,7 @@
                 }
                 
                 return {
-                    x: [
-                        projName, 
-                        `Run: ${displayRunTime}`, 
-                        `Line: ${a.line_name}`, 
-                        `${sName} | ${dType}`
-                    ], 
+                    x: `${projName}|||${displayRunTime}|||${sName}|||${dType}|||${a.line_name}`, 
                     y: [new Date(a.start).getTime(), new Date(a.end_).getTime()],
                     fillColor: datumColors[dType] || '#775DD0',
                     project: projName, 
@@ -597,33 +717,69 @@
                     source: sName, 
                     originalLine: a.line_name, 
                     run: displayRunTime,
-                    rawRun: rawRun
+                    rawRun: rawRun,
+                    isHeader: false
                 };
             }).filter(item => !isNaN(item.y[0]) && !isNaN(item.y[1]));
 
-            chartData.sort((a, b) => {
-                if (a.project !== b.project) return a.project.localeCompare(b.project);
-                if (a.rawRun !== b.rawRun) return b.rawRun.localeCompare(a.rawRun); 
-                if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
-                if (a.source !== b.source) return a.source.localeCompare(b.source);
-                return a.datum.localeCompare(b.datum);
-            });
-
-            // Adjust min and max of X-axis based on time zone toggle
             let xAxisConfig = { type: 'datetime', labels: { datetimeUTC: useUTC }, tickAmount: 24 };
+            let minTime = new Date().setHours(0,0,0,0);
+            
             if (selectedDate && selectedDate !== "null") {
                 const parts = selectedDate.split('-');
                 if (useUTC) {
-                    xAxisConfig.min = Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0);
+                    minTime = Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0);
+                    xAxisConfig.min = minTime;
                     xAxisConfig.max = Date.UTC(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
                 } else {
-                    xAxisConfig.min = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
+                    minTime = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0).getTime();
+                    xAxisConfig.min = minTime;
                     xAxisConfig.max = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59).getTime();
                 }
+            } else if (rawChartData.length > 0) {
+                minTime = Math.min(...rawChartData.map(d => d.y[0]));
+                xAxisConfig.min = minTime;
+                xAxisConfig.max = Math.max(...rawChartData.map(d => d.y[1]));
             }
 
-            const uniqueRows = new Set(chartData.map(d => d.x.join('|'))).size;
-            const baseRowHeight = 70; 
+            const chartData = [...rawChartData];
+            const headers = new Set();
+            
+            rawChartData.forEach(d => {
+                const headerKey = `${d.project}|||${d.run}|||${d.source}|||${d.datum}|||__HEADER__`;
+                if (!headers.has(headerKey)) {
+                    headers.add(headerKey);
+                    chartData.push({
+                        x: headerKey,
+                        y: [minTime, minTime], 
+                        fillColor: 'transparent',
+                        project: d.project,
+                        datum: d.datum,
+                        source: d.source,
+                        run: d.run,
+                        rawRun: d.rawRun, 
+                        originalLine: '',
+                        isHeader: true
+                    });
+                }
+            });
+
+            chartData.sort((a, b) => {
+                if (a.project !== b.project) return a.project.localeCompare(b.project);
+                if (a.rawRun && b.rawRun && a.rawRun !== b.rawRun) return b.rawRun.localeCompare(a.rawRun); 
+                if (a.source !== b.source) return a.source.localeCompare(b.source);
+                if (a.datum !== b.datum) return a.datum.localeCompare(b.datum);
+                
+                if (a.isHeader && !b.isHeader) return -1;
+                if (!a.isHeader && b.isHeader) return 1;
+                
+                if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
+                
+                return a.y[0] - b.y[0];
+            });
+
+            const uniqueRows = new Set(chartData.map(d => d.x)).size;
+            const baseRowHeight = 45; 
             let calculatedHeight = (uniqueRows * baseRowHeight) + 40; 
             
             const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
@@ -631,7 +787,27 @@
 
             document.getElementById('chart_container').style.height = calculatedHeight + 'px';
 
-            const commonYAxis = { labels: { minWidth: 200, maxWidth: 300 } };
+            const commonYAxis = { 
+                labels: { 
+                    minWidth: 160, 
+                    maxWidth: 250,
+                    align: 'right',
+                    offsetX: -5,
+                    style: { fontSize: '11px', fontWeight: 500, fontFamily: 'Segoe UI' },
+                    formatter: function(val) {
+                        if (!val) return "";
+                        const parts = String(val).split('|||');
+                        if (parts.length === 5) {
+                            if (parts[4] === '__HEADER__') {
+                                return [parts[0], `Run: ${parts[1]}`, `${parts[2]} | ${parts[3]}`]; 
+                            } else {
+                                return parts[4]; 
+                            }
+                        }
+                        return val;
+                    }
+                } 
+            };
 
             const nowTime = new Date().getTime();
             const nowAnnotationLine = { x: nowTime, strokeDashArray: 0, borderColor: '#FF4560', borderWidth: 2 };
@@ -642,7 +818,7 @@
 
             const topOptions = {
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
-                chart: { type: 'rangeBar', height: 60, group: 'sync-gantt', id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
+                chart: { type: 'rangeBar', height: 60, id: 'top-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...xAxisConfig, position: 'top', labels: { style: { colors: '#ccc' }, datetimeUTC: useUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
@@ -653,7 +829,7 @@
 
             const bottomOptions = {
                 series: [{ data: [{ x: 'Dummy', y: [xAxisConfig.min, xAxisConfig.max] }] }],
-                chart: { type: 'rangeBar', height: 50, group: 'sync-gantt', id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
+                chart: { type: 'rangeBar', height: 50, id: 'bottom-chart', toolbar: { show: false }, animations: { enabled: false } },
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...xAxisConfig, position: 'bottom', labels: { style: { colors: '#ccc' }, datetimeUTC: useUTC } },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
@@ -662,7 +838,6 @@
                 tooltip: { enabled: false }
             };
 
-            // Helper to format hours consistently
             const formatTimeStr = (timestamp) => {
                 const d = new Date(timestamp);
                 const h = useUTC ? d.getUTCHours() : d.getHours();
@@ -673,16 +848,18 @@
             const mainOptions = {
                 series: [{ data: chartData }],
                 chart: { 
-                    type: 'rangeBar', height: calculatedHeight, group: 'sync-gantt', id: 'main-chart',
+                    type: 'rangeBar', height: calculatedHeight, id: 'main-chart',
                     toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
                     events: { mounted: function() { colorizeYAxisText(); }, updated: function() { colorizeYAxisText(); } }
                 },
-                plotOptions: { bar: { horizontal: true, barHeight: '40%' } }, 
+                plotOptions: { bar: { horizontal: true, barHeight: '80%' } }, 
                 
                 dataLabels: {
                     enabled: true,
                     formatter: function(val, opts) {
                         const d = opts.w.globals.initialSeries[opts.seriesIndex].data[opts.dataPointIndex];
+                        if (d.isHeader) return ''; 
+                        
                         const sTime = formatTimeStr(d.y[0]);
                         const eTime = formatTimeStr(d.y[1]);
                         return `${sTime} - ${eTime}`;
@@ -692,21 +869,30 @@
                 },
 
                 xaxis: { ...xAxisConfig, labels: { show: false }, tooltip: { enabled: false } },
-                yaxis: { labels: { ...commonYAxis.labels, style: { fontSize: '10px', fontWeight: 400 }, formatter: function(val) { return val; } } },
+                yaxis: { labels: { ...commonYAxis.labels, style: { fontSize: '10px', fontWeight: 400 }, formatter: commonYAxis.labels.formatter } },
                 annotations: { xaxis: [ nowAnnotationLine ] },
-                grid: { borderColor: '#444', strokeDashArray: 4, xaxis: { lines: { show: true } }, yaxis: { lines: { show: true } }, padding: { left: 0, right: 30 } },
+                
+                grid: { 
+                    borderColor: '#444', 
+                    strokeDashArray: 4, 
+                    xaxis: { lines: { show: true } }, 
+                    yaxis: { lines: { show: true } }, 
+                    padding: { left: 0, right: 30 } 
+                },
                 
                 tooltip: { 
                     theme: 'dark', 
-                    followCursor: true, 
+                    followCursor: false, 
                     custom: function({ series, seriesIndex, dataPointIndex, w }) {
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
+                        if (d.isHeader) return `<div style="display:none;"></div>`; 
+                        
                         const sTime = formatTimeStr(d.y[0]);
                         const eTime = formatTimeStr(d.y[1]);
                         const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
                         const timeZoneLbl = useUTC ? 'UTC' : 'Local Time';
                         
-                        return `<div style="padding: 8px; background: #222; border: 1px solid ${d.fillColor}; color: #fff; font-size: 11px; line-height: 1.4;">` +
+                        return `<div style="padding: 10px; background: #222; border: 1px solid ${d.fillColor}; border-radius: 4px; color: #fff; font-size: 11px; line-height: 1.5; white-space: nowrap; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">` +
                             `<span><b style="color:${sCol}">Source: ${d.source}</b></span><br>` +
                             `<span><b>Model Run:</b> ${d.run}</span><br>` +
                             `<span><b>Project:</b> ${d.project}</span><br>` +
@@ -722,8 +908,12 @@
             if (bottomChart) { bottomChart.destroy(); }
 
             topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions); topChart.render();
-            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions); mainChart.render();
             bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions); bottomChart.render();
+            
+            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions); 
+            mainChart.render().then(() => {
+                setupTooltipObserver();
+            });
         }
 
         buildUI();
