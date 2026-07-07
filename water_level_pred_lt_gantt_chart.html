@@ -507,11 +507,57 @@
 
         function getTzOffsetMs(timestamp, timeZone) {
             try {
-                const d = new Date(timestamp);
-                const tzDate = new Date(d.toLocaleString('en-US', { timeZone: timeZone }));
-                const utcDate = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
-                return tzDate.getTime() - utcDate.getTime();
-            } catch(e) { return 0; }
+                const date = new Date(timestamp);
+                
+                // 1. Get exact numerical parts for the selected TimeZone
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: timeZone,
+                    year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric',
+                    hourCycle: 'h23'
+                });
+                
+                const parts = formatter.formatToParts(date);
+                let y, m, d, h, min, s;
+                
+                for (let part of parts) {
+                    if (part.type === 'year') y = parseInt(part.value, 10);
+                    if (part.type === 'month') m = parseInt(part.value, 10);
+                    if (part.type === 'day') d = parseInt(part.value, 10);
+                    if (part.type === 'hour') h = parseInt(part.value, 10);
+                    if (part.type === 'minute') min = parseInt(part.value, 10);
+                    if (part.type === 'second') s = parseInt(part.value, 10);
+                }
+                if (h === 24) h = 0; // Handle midnight edge case
+                const tzFakeUtc = Date.UTC(y, m - 1, d, h, min, s);
+                
+                // 2. Get exact numerical parts for UTC
+                const utcFormatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'UTC',
+                    year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric',
+                    hourCycle: 'h23'
+                });
+                const uParts = utcFormatter.formatToParts(date);
+                let uy, um, ud, uh, umin, us;
+                
+                for (let part of uParts) {
+                    if (part.type === 'year') uy = parseInt(part.value, 10);
+                    if (part.type === 'month') um = parseInt(part.value, 10);
+                    if (part.type === 'day') ud = parseInt(part.value, 10);
+                    if (part.type === 'hour') uh = parseInt(part.value, 10);
+                    if (part.type === 'minute') umin = parseInt(part.value, 10);
+                    if (part.type === 'second') us = parseInt(part.value, 10);
+                }
+                if (uh === 24) uh = 0;
+                const realUtc = Date.UTC(uy, um - 1, ud, uh, umin, us);
+
+                // 3. Return the exact millisecond difference safely
+                return tzFakeUtc - realUtc;
+            } catch(e) { 
+                console.error("Timezone conversion error:", e);
+                return 0; 
+            }
         }
 
         async function fetchWaterLevels() {
@@ -539,20 +585,68 @@
                 }
             });
 
+            // Expand the fetched data by 1 day on each side to prevent timezone clip drops
             const sd = urlParams.get('start_date');
             const ed = urlParams.get('end_date');
-            if (sd && ed) { sqlWhere += ` AND date_ >= '${sd}' AND date_ <= '${ed}'`; }
+            if (sd && ed) {
+                const startParts = sd.split('-');
+                const endParts = ed.split('-');
+                const startDateObj = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+                const endDateObj = new Date(endParts[0], endParts[1] - 1, endParts[2]);
 
-            const params = new URLSearchParams({ where: sqlWhere, outFields: "project,line_name,start,end_,datum,source", returnGeometry: "false", f: "json", token: apiKey });
+                startDateObj.setDate(startDateObj.getDate() - 1);
+                endDateObj.setDate(endDateObj.getDate() + 1);
+
+                const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+                const expandedSd = formatDate(startDateObj);
+                const expandedEd = formatDate(endDateObj);
+
+                sqlWhere += ` AND date_ >= '${expandedSd}' AND date_ <= '${expandedEd}'`;
+            }
+
+            const params = new URLSearchParams({ 
+                where: sqlWhere, 
+                outFields: "project,line_name,start,end_,datum,source,date_", 
+                orderByFields: "project ASC, line_name ASC, start ASC", 
+                returnGeometry: "false", 
+                f: "json", 
+                token: apiKey 
+            });
 
             try {
                 updateTimezoneLabels(sd);
-                const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
-                const data = await response.json();
+                
+                let allFeatures = [];
+                let fetchMore = true;
+                let offset = 0;
+
+                while (fetchMore) {
+                    params.set('resultOffset', offset);
+                    
+                    const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
+                    const data = await response.json();
+                    
+                    if (data.features && data.features.length > 0) {
+                        allFeatures = allFeatures.concat(data.features);
+                        offset += data.features.length; 
+                    }
+                    
+                    if (data.exceededTransferLimit) {
+                        fetchMore = true;
+                    } else {
+                        fetchMore = false;
+                    }
+                }
                 
                 const tzSetting = urlParams.get('tz') || 'local';
-                if (data.features) processAndDraw(data.features, tzSetting, sd, ed);
-            } catch (error) { console.error("Fetch failed:", error); }
+                
+                if (allFeatures.length > 0 || mainChart) {
+                    processAndDraw(allFeatures, tzSetting, sd, ed);
+                }
+            } catch (error) { 
+                console.error("Fetch failed:", error); 
+            }
         }
 
         function processAndDraw(features, tzSetting, startDateParam, endDateParam) {
