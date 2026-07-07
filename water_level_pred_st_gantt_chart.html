@@ -358,7 +358,6 @@
                     } else {
                         const selectEl = document.getElementById(`filter-${field}`);
                         if (selectEl) {
-                            // Dashboard Override 1 removed
                             let urlVal = new URL(window.location).searchParams.get(field);
                             
                             while (selectEl.options.length > 1) selectEl.remove(1);
@@ -372,7 +371,6 @@
                             
                             if (matchedVal) {
                                 selectEl.value = matchedVal;
-                                // Force dashboard URL to keep memory of this parameter
                                 const syncUrl = new URL(window.location);
                                 syncUrl.searchParams.set(field, matchedVal);
                                 window.history.replaceState({}, '', syncUrl);
@@ -406,7 +404,6 @@
             document.getElementById('filter-date_').value = currentDateParam;
             updateTimezoneLabels(currentDateParam);
 
-            // Dashboard Override 2 removed
             let currentSourceParam = url.searchParams.get('source');
 
             let currentProjectParam = url.searchParams.get('project');
@@ -530,11 +527,54 @@
 
         function getTzOffsetMs(timestamp, timeZone) {
             try {
-                const d = new Date(timestamp);
-                const tzDate = new Date(d.toLocaleString('en-US', { timeZone: timeZone }));
-                const utcDate = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
-                return tzDate.getTime() - utcDate.getTime();
-            } catch(e) { return 0; }
+                const date = new Date(timestamp);
+                
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: timeZone,
+                    year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric',
+                    hourCycle: 'h23'
+                });
+                
+                const parts = formatter.formatToParts(date);
+                let y, m, d, h, min, s;
+                
+                for (let part of parts) {
+                    if (part.type === 'year') y = parseInt(part.value, 10);
+                    if (part.type === 'month') m = parseInt(part.value, 10);
+                    if (part.type === 'day') d = parseInt(part.value, 10);
+                    if (part.type === 'hour') h = parseInt(part.value, 10);
+                    if (part.type === 'minute') min = parseInt(part.value, 10);
+                    if (part.type === 'second') s = parseInt(part.value, 10);
+                }
+                if (h === 24) h = 0; 
+                const tzFakeUtc = Date.UTC(y, m - 1, d, h, min, s);
+                
+                const utcFormatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'UTC',
+                    year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric',
+                    hourCycle: 'h23'
+                });
+                const uParts = utcFormatter.formatToParts(date);
+                let uy, um, ud, uh, umin, us;
+                
+                for (let part of uParts) {
+                    if (part.type === 'year') uy = parseInt(part.value, 10);
+                    if (part.type === 'month') um = parseInt(part.value, 10);
+                    if (part.type === 'day') ud = parseInt(part.value, 10);
+                    if (part.type === 'hour') uh = parseInt(part.value, 10);
+                    if (part.type === 'minute') umin = parseInt(part.value, 10);
+                    if (part.type === 'second') us = parseInt(part.value, 10);
+                }
+                if (uh === 24) uh = 0;
+                const realUtc = Date.UTC(uy, um - 1, ud, uh, umin, us);
+
+                return tzFakeUtc - realUtc;
+            } catch(e) { 
+                console.error("Timezone conversion error:", e);
+                return 0; 
+            }
         }
 
         async function fetchWaterLevels() {
@@ -546,13 +586,13 @@
 
             const urlParams = new URLSearchParams(currentUrl);
             let sqlWhere = "1=1";
-            const filters = ['project', 'datum', 'line_name', 'date_', 'line', 'source'];
+            
+            // NOTICE: 'date_' has been removed from this strict filter list
+            const filters = ['project', 'datum', 'line_name', 'line', 'source'];
             
             filters.forEach(key => {
                 let val = urlParams.get(key);
                 
-                // Dashboard Override 3 removed
-
                 if (val && val !== "" && val !== "null") {
                     if (key === 'project') {
                         const arr = val.split(',').map(p => `'${p}'`).join(',');
@@ -568,18 +608,70 @@
                 }
             });
 
-            const params = new URLSearchParams({ where: sqlWhere, outFields: "project,line_name,start,end_,datum,source", returnGeometry: "false", f: "json", token: apiKey });
+            // FIX: Retrieve 3 days of UTC data to capture timezone bleed-overs
+            const selectedDate = urlParams.get('date_');
+            if (selectedDate && selectedDate !== "null") {
+                const parts = selectedDate.split('-');
+                const centerDate = new Date(parts[0], parts[1] - 1, parts[2]);
+                
+                const prevDate = new Date(centerDate); 
+                prevDate.setDate(prevDate.getDate() - 1);
+                
+                const nextDate = new Date(centerDate); 
+                nextDate.setDate(nextDate.getDate() + 1);
+                
+                const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                
+                const d1 = formatDate(prevDate);
+                const d2 = selectedDate;
+                const d3 = formatDate(nextDate);
+                
+                sqlWhere += ` AND date_ IN ('${d1}', '${d2}', '${d3}')`;
+            }
+
+            const params = new URLSearchParams({ 
+                where: sqlWhere, 
+                outFields: "project,line_name,start,end_,datum,source,date_", 
+                orderByFields: "project ASC, line_name ASC, start ASC", 
+                returnGeometry: "false", 
+                f: "json", 
+                token: apiKey 
+            });
 
             try {
-                const selectedDate = urlParams.get('date_');
                 updateTimezoneLabels(selectedDate); 
                 
-                const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
-                const data = await response.json();
+                let allFeatures = [];
+                let fetchMore = true;
+                let offset = 0;
+
+                while (fetchMore) {
+                    params.set('resultOffset', offset);
+                    
+                    const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
+                    const data = await response.json();
+                    
+                    if (data.features && data.features.length > 0) {
+                        allFeatures = allFeatures.concat(data.features);
+                        offset += data.features.length; 
+                    }
+                    
+                    if (data.exceededTransferLimit) {
+                        fetchMore = true;
+                    } else {
+                        fetchMore = false;
+                    }
+                }
                 
                 const tzSetting = urlParams.get('tz') || 'local';
-                if (data.features) processAndDraw(data.features, selectedDate, tzSetting);
-            } catch (error) { console.error("Fetch failed:", error); }
+                
+                if (allFeatures.length > 0 || mainChart) {
+                    processAndDraw(allFeatures, selectedDate, tzSetting);
+                }
+
+            } catch (error) { 
+                console.error("Fetch failed:", error); 
+            }
         }
 
         function processAndDraw(features, selectedDate, tzSetting) {
@@ -642,7 +734,11 @@
                 };
             }).filter(item => {
                 if (isNaN(item.y[0]) || isNaN(item.y[1])) return false;
+                
+                // FIX: Strict check. Because we pulled 3 days of data, we only keep the bars that 
+                // actually overlap the specific 24-hour window the user is currently looking at.
                 if (item.y[1] < xAxisConfig.min || item.y[0] > xAxisConfig.max) return false;
+                
                 return true;
             });
 
