@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>RSD Water Level Windows Gantt (Short-Term Predictions)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
     <style>
         /* Bulletproof layout constraints */
         html, body { 
@@ -29,7 +30,7 @@
             z-index: 20;
         }
         
-        #ui_controls select, #ui_controls input[type="date"], #ui_controls button {
+        #ui_controls select, #ui_controls input[type="date"], #ui_controls input[type="number"], #ui_controls button {
             background-color: #333; color: #fff; border: 1px solid #555;
             padding: 4px 10px; border-radius: 4px; font-family: inherit;
             font-size: 12px; outline: none; height: 28px; box-sizing: border-box;
@@ -66,10 +67,11 @@
         .custom-select-options label:hover { background-color: #444; color: #fff; }
         .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
 
-        /* Rocker Groups (Dates & Lines) */
+        /* Rocker Groups (Dates & Lines & Toggles) */
         .rocker-group { display: flex; align-items: center; gap: 4px; }
         .rocker-group button { padding: 0 8px; font-size: 11px; background-color: #444; height: 28px; border-radius: 4px; }
         .rocker-group button:hover { background-color: #555; }
+        .checkbox-label { color: #fff; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 
         /* --- 3-TIER CHART ARCHITECTURE --- */
         #top_axis_wrapper {
@@ -139,6 +141,15 @@
             <option value="America/Anchorage" data-name="Alaska Time">Alaska Time</option>
             <option value="Pacific/Honolulu" data-name="Hawaii Time">Hawaii Time</option>
         </select>
+        
+        <!-- NEW GLINT CONTROLS -->
+        <div class="rocker-group" style="padding-left: 10px; border-left: 1px solid #444;">
+            <label class="checkbox-label" title="Toggle Sun Glint Zone">
+                <input type="checkbox" id="filter-glint-show"> Show Glint
+            </label>
+            <input type="number" id="filter-glint-angle" value="40" min="0" max="90" style="width: 55px;" title="Cutoff Angle (Degrees)">
+            <span style="color: #ccc; font-size: 11px;">&deg;</span>
+        </div>
 
         <button onclick="resetFilters()">Reset Filters</button>
     </div>
@@ -204,7 +215,7 @@
         function sanitizeArcGISParams() {
             const url = new URL(window.location);
             let cleaned = false;
-            ['project', 'line', 'date_', 'source', 'datum', 'tz'].forEach(p => {
+            ['project', 'line', 'date_', 'source', 'datum', 'tz', 'glint_show', 'glint_angle'].forEach(p => {
                 let v = url.searchParams.get(p);
                 if (v && (v.includes('{') || v.includes('}'))) {
                     url.searchParams.delete(p);
@@ -404,8 +415,6 @@
             document.getElementById('filter-date_').value = currentDateParam;
             updateTimezoneLabels(currentDateParam);
 
-            let currentSourceParam = url.searchParams.get('source');
-
             let currentProjectParam = url.searchParams.get('project');
             if (currentProjectParam && currentProjectParam !== "null") {
                 const projArray = currentProjectParam.split(',');
@@ -417,16 +426,27 @@
                 updateMultiSelectText('project', 'All Projects');
             }
 
-            if (urlChanged) window.history.replaceState({}, '', url); 
-
             const tzVal = url.searchParams.get('tz');
             if (tzVal && tzVal !== "null") {
                 const el = document.getElementById('filter-tz');
                 if (el) el.value = tzVal;
             }
 
+            // Init Glint UI from URL
+            const glintShowParam = url.searchParams.get('glint_show');
+            if (glintShowParam !== null) {
+                document.getElementById('filter-glint-show').checked = glintShowParam === 'true';
+            }
+            const glintAngleParam = url.searchParams.get('glint_angle');
+            if (glintAngleParam !== null) {
+                document.getElementById('filter-glint-angle').value = glintAngleParam;
+            }
+
+            if (urlChanged) window.history.replaceState({}, '', url); 
+
             await updateDependentDropdowns();
 
+            // Bind Event Listeners
             document.querySelectorAll('#filter-source, #filter-datum, #filter-date_, #filter-tz').forEach(el => {
                 el.addEventListener('change', async (e) => {
                     const currentUrl = new URL(window.location);
@@ -438,6 +458,22 @@
                 });
             });
 
+            // Bind Glint Toggle
+            document.getElementById('filter-glint-show').addEventListener('change', (e) => {
+                const currentUrl = new URL(window.location);
+                currentUrl.searchParams.set('glint_show', e.target.checked);
+                window.history.pushState({}, '', currentUrl);
+                fetchWaterLevels();
+            });
+
+            // Bind Glint Angle Input
+            document.getElementById('filter-glint-angle').addEventListener('input', (e) => {
+                const currentUrl = new URL(window.location);
+                currentUrl.searchParams.set('glint_angle', e.target.value);
+                window.history.pushState({}, '', currentUrl);
+                fetchWaterLevels();
+            });
+
             fetchWaterLevels(); 
         }
 
@@ -447,12 +483,19 @@
             
             url.searchParams.set('date_', todayStr);
             url.searchParams.delete('source');
+            url.searchParams.delete('glint_show');
+            url.searchParams.delete('glint_angle');
             window.history.pushState({}, '', url);
 
             document.getElementById('filter-source').value = ''; 
             document.getElementById('filter-datum').value = '';
             document.getElementById('filter-tz').value = 'local';
             document.getElementById('filter-date_').value = todayStr;
+            
+            // Reset Glint
+            document.getElementById('filter-glint-show').checked = false;
+            document.getElementById('filter-glint-angle').value = '40';
+
             updateTimezoneLabels(todayStr);
             
             document.querySelectorAll('.project-checkbox').forEach(cb => cb.checked = false);
@@ -577,101 +620,141 @@
             }
         }
 
+        // Cache for all features to prevent re-fetching when only UI tools change
+        let cachedFeatures = [];
+
         async function fetchWaterLevels() {
             sanitizeArcGISParams(); 
             
             const currentUrl = window.location.search;
+            const urlParams = new URLSearchParams(currentUrl);
+            
+            // Reconstruct URL WITHOUT glint params to check if we actually need to fetch ArcGIS data
+            const checkParams = new URLSearchParams(currentUrl);
+            checkParams.delete('glint_show');
+            checkParams.delete('glint_angle');
+            const dataStateUrl = checkParams.toString();
+
+            // Attach glint state on the main URL tracker so it doesn't loop, but check if we need new data
             if (currentUrl === lastUrl && mainChart) return;
             lastUrl = currentUrl;
 
-            const urlParams = new URLSearchParams(currentUrl);
-            let sqlWhere = "1=1";
+            // Only fetch if core data filters changed
+            if (cachedFeatures.length > 0 && !window.lastDataStateUrl) window.lastDataStateUrl = "";
             
-            // NOTICE: 'date_' has been removed from this strict filter list
-            const filters = ['project', 'datum', 'line_name', 'line', 'source'];
-            
-            filters.forEach(key => {
-                let val = urlParams.get(key);
+            if (dataStateUrl !== window.lastDataStateUrl) {
+                window.lastDataStateUrl = dataStateUrl;
                 
-                if (val && val !== "" && val !== "null") {
-                    if (key === 'project') {
-                        const arr = val.split(',').map(p => `'${p}'`).join(',');
-                        sqlWhere += ` AND project IN (${arr})`;
-                    } else if (key === 'line') {
-                        const arr = val.split(',').map(l => `'${l}'`).join(',');
-                        sqlWhere += ` AND line_name IN (${arr})`;
-                    } else if (key === 'source' || key === 'datum') {
-                        sqlWhere += ` AND UPPER(${key}) = '${val.toUpperCase()}'`;
-                    } else {
-                        sqlWhere += ` AND ${key} = '${val}'`;
+                let sqlWhere = "1=1";
+                const filters = ['project', 'datum', 'line_name', 'line', 'source'];
+                
+                filters.forEach(key => {
+                    let val = urlParams.get(key);
+                    if (val && val !== "" && val !== "null") {
+                        if (key === 'project') {
+                            const arr = val.split(',').map(p => `'${p}'`).join(',');
+                            sqlWhere += ` AND project IN (${arr})`;
+                        } else if (key === 'line') {
+                            const arr = val.split(',').map(l => `'${l}'`).join(',');
+                            sqlWhere += ` AND line_name IN (${arr})`;
+                        } else if (key === 'source' || key === 'datum') {
+                            sqlWhere += ` AND UPPER(${key}) = '${val.toUpperCase()}'`;
+                        } else {
+                            sqlWhere += ` AND ${key} = '${val}'`;
+                        }
                     }
-                }
-            });
+                });
 
-            // FIX: Retrieve 3 days of UTC data to capture timezone bleed-overs
+                const selectedDate = urlParams.get('date_');
+                if (selectedDate && selectedDate !== "null") {
+                    const parts = selectedDate.split('-');
+                    const centerDate = new Date(parts[0], parts[1] - 1, parts[2]);
+                    
+                    const prevDate = new Date(centerDate); 
+                    prevDate.setDate(prevDate.getDate() - 1);
+                    
+                    const nextDate = new Date(centerDate); 
+                    nextDate.setDate(nextDate.getDate() + 1);
+                    
+                    const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    
+                    const d1 = formatDate(prevDate);
+                    const d2 = selectedDate;
+                    const d3 = formatDate(nextDate);
+                    
+                    sqlWhere += ` AND date_ IN ('${d1}', '${d2}', '${d3}')`;
+                }
+
+                const params = new URLSearchParams({ 
+                    where: sqlWhere, 
+                    outFields: "project,line_name,start,end_,datum,source,date_", 
+                    orderByFields: "project ASC, line_name ASC, start ASC", 
+                    returnGeometry: "true", 
+                    outSR: "4326",
+                    f: "json", 
+                    token: apiKey 
+                });
+
+                try {
+                    updateTimezoneLabels(selectedDate); 
+                    
+                    let allFeatures = [];
+                    let fetchMore = true;
+                    let offset = 0;
+
+                    while (fetchMore) {
+                        params.set('resultOffset', offset);
+                        
+                        const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
+                        const data = await response.json();
+                        
+                        if (data.features && data.features.length > 0) {
+                            allFeatures = allFeatures.concat(data.features);
+                            offset += data.features.length; 
+                        }
+                        
+                        if (data.exceededTransferLimit) {
+                            fetchMore = true;
+                        } else {
+                            fetchMore = false;
+                        }
+                    }
+                    
+                    cachedFeatures = allFeatures;
+
+                } catch (error) { 
+                    console.error("Fetch failed:", error); 
+                }
+            }
+
+            const tzSetting = urlParams.get('tz') || 'local';
             const selectedDate = urlParams.get('date_');
-            if (selectedDate && selectedDate !== "null") {
-                const parts = selectedDate.split('-');
-                const centerDate = new Date(parts[0], parts[1] - 1, parts[2]);
-                
-                const prevDate = new Date(centerDate); 
-                prevDate.setDate(prevDate.getDate() - 1);
-                
-                const nextDate = new Date(centerDate); 
-                nextDate.setDate(nextDate.getDate() + 1);
-                
-                const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                
-                const d1 = formatDate(prevDate);
-                const d2 = selectedDate;
-                const d3 = formatDate(nextDate);
-                
-                sqlWhere += ` AND date_ IN ('${d1}', '${d2}', '${d3}')`;
+            
+            if (cachedFeatures.length > 0 || mainChart) {
+                processAndDraw(cachedFeatures, selectedDate, tzSetting);
             }
+        }
 
-            const params = new URLSearchParams({ 
-                where: sqlWhere, 
-                outFields: "project,line_name,start,end_,datum,source,date_", 
-                orderByFields: "project ASC, line_name ASC, start ASC", 
-                returnGeometry: "false", 
-                f: "json", 
-                token: apiKey 
-            });
-
-            try {
-                updateTimezoneLabels(selectedDate); 
+        function getSunGlintWindow(dateStr, lat, lon, thresholdDegrees) {
+            const parts = dateStr.split('-');
+            const baseDate = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+            
+            const thresholdRads = thresholdDegrees * (Math.PI / 180);
+            
+            let glintStart = null;
+            let glintEnd = null;
+            
+            for (let i = 0; i < 24 * 60; i += 10) {
+                const testTime = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, i, 0);
+                const sunPos = SunCalc.getPosition(testTime, lat, lon);
                 
-                let allFeatures = [];
-                let fetchMore = true;
-                let offset = 0;
-
-                while (fetchMore) {
-                    params.set('resultOffset', offset);
-                    
-                    const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
-                    const data = await response.json();
-                    
-                    if (data.features && data.features.length > 0) {
-                        allFeatures = allFeatures.concat(data.features);
-                        offset += data.features.length; 
-                    }
-                    
-                    if (data.exceededTransferLimit) {
-                        fetchMore = true;
-                    } else {
-                        fetchMore = false;
-                    }
+                if (sunPos.altitude >= thresholdRads) {
+                    if (!glintStart) glintStart = testTime.getTime();
+                    glintEnd = testTime.getTime(); 
                 }
-                
-                const tzSetting = urlParams.get('tz') || 'local';
-                
-                if (allFeatures.length > 0 || mainChart) {
-                    processAndDraw(allFeatures, selectedDate, tzSetting);
-                }
-
-            } catch (error) { 
-                console.error("Fetch failed:", error); 
             }
+            
+            return { glintStart, glintEnd };
         }
 
         function processAndDraw(features, selectedDate, tzSetting) {
@@ -681,6 +764,15 @@
             const tzSelect = document.getElementById('filter-tz');
             const selectedOption = tzSelect.options[tzSelect.selectedIndex];
             const fullTzName = selectedOption ? selectedOption.text : tzSetting;
+
+            let projectLat = 0;
+            let projectLon = 0;
+            
+            if (features.length > 0 && features[0].geometry) {
+                const geom = features[0].geometry;
+                projectLon = geom.x || (geom.paths ? geom.paths[0][0][0] : 0);
+                projectLat = geom.y || (geom.paths ? geom.paths[0][0][1] : 0);
+            }
 
             let xAxisConfig = { 
                 type: 'datetime', 
@@ -711,6 +803,56 @@
                 }
             }
 
+            // Extract Glint UI Settings
+            const showGlint = document.getElementById('filter-glint-show').checked;
+            const glintAngle = parseFloat(document.getElementById('filter-glint-angle').value) || 40;
+
+            let glintAnnotations = [];
+            if (showGlint && selectedDate && selectedDate !== "null" && projectLat !== 0 && projectLon !== 0) {
+                const { glintStart, glintEnd } = getSunGlintWindow(selectedDate, projectLat, projectLon, glintAngle);
+                
+                if (glintStart && glintEnd) {
+                    let adjStart = glintStart;
+                    let adjEnd = glintEnd;
+                    if (tzSetting !== 'local' && tzSetting !== 'utc') {
+                        adjStart += getTzOffsetMs(glintStart, tzSetting);
+                        adjEnd += getTzOffsetMs(glintEnd, tzSetting);
+                    }
+
+                    // --- Format the Start and End Times for the Label ---
+                    const startD = new Date(adjStart);
+                    const endD = new Date(adjEnd);
+                    
+                    const sH = useApexUTC ? startD.getUTCHours() : startD.getHours();
+                    const sM = useApexUTC ? startD.getUTCMinutes() : startD.getMinutes();
+                    const eH = useApexUTC ? endD.getUTCHours() : endD.getHours();
+                    const eM = useApexUTC ? endD.getUTCMinutes() : endD.getMinutes();
+                    
+                    const sTime = String(sH).padStart(2, '0') + String(sM).padStart(2, '0');
+                    const eTime = String(eH).padStart(2, '0') + String(eM).padStart(2, '0');
+                    // ----------------------------------------------------
+                    glintAnnotations.push({
+                        x: adjStart,
+                        x2: adjEnd,
+                        fillColor: '#FFD700',
+                        opacity: 0.15,
+                        label: {
+                            text: `Sun Angle (>${glintAngle}°)  |  ${sTime} - ${eTime}`,
+                            orientation: 'vertical',
+                            offsetX: 15, // Pushes the label to the right, away from the edge
+                            offsetY: 15, // Pushes the label down from the top axis
+                            style: { 
+                                color: '#000', 
+                                background: 'rgba(255, 215, 0, 0.75)', 
+                                fontSize: '12px', 
+                                fontWeight: 600, 
+                                padding: { left: 8, right: 8, top: 3, bottom: 3 } 
+                            }
+                        }
+                    });
+                }
+            }
+
             const rawChartData = features.map(f => {
                 const a = f.attributes;
                 const sName = (a.source || 'UNKNOWN').toUpperCase();
@@ -735,8 +877,6 @@
             }).filter(item => {
                 if (isNaN(item.y[0]) || isNaN(item.y[1])) return false;
                 
-                // FIX: Strict check. Because we pulled 3 days of data, we only keep the bars that 
-                // actually overlap the specific 24-hour window the user is currently looking at.
                 if (item.y[1] < xAxisConfig.min || item.y[0] > xAxisConfig.max) return false;
                 
                 return true;
@@ -888,7 +1028,7 @@
 
                 xaxis: { ...xAxisConfig, labels: { show: false }, tooltip: { enabled: false } },
                 yaxis: { labels: { ...commonYAxis.labels, style: { fontSize: '10px', fontWeight: 400 }, formatter: commonYAxis.labels.formatter } },
-                annotations: { xaxis: [ nowAnnotationLine ] },
+                annotations: { xaxis: [ nowAnnotationLine, ...glintAnnotations ] },
                 grid: { borderColor: '#444', strokeDashArray: 4, xaxis: { lines: { show: true } }, yaxis: { lines: { show: true } }, padding: { left: 0, right: 30 } },
                 
                 tooltip: { 
