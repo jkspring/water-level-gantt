@@ -242,7 +242,7 @@
         }
 
         async function handleMultiSelectChange(paramName) {
-            updateMultiSelectText(paramName, paramName === 'project' ? 'All Projects' : 'All Lines');
+            updateMultiSelectText(paramName, paramName === 'project' ? 'Select Project(s)' : 'All Lines');
             const checkedBoxes = document.querySelectorAll(`.${paramName}-checkbox:checked`);
             const selectedVals = Array.from(checkedBoxes).map(cb => cb.value);
             
@@ -365,7 +365,7 @@
                             const arr = urlVal.split(',');
                             document.querySelectorAll(`.${paramName}-checkbox`).forEach(cb => cb.checked = arr.includes(cb.value));
                         }
-                        updateMultiSelectText(paramName, field === 'project' ? 'All Projects' : 'All Lines');
+                        updateMultiSelectText(paramName, field === 'project' ? 'Select Project(s)' : 'All Lines');
                     } else {
                         const selectEl = document.getElementById(`filter-${field}`);
                         if (selectEl) {
@@ -416,14 +416,14 @@
             updateTimezoneLabels(currentDateParam);
 
             let currentProjectParam = url.searchParams.get('project');
-            if (currentProjectParam && currentProjectParam !== "null") {
+            if (currentProjectParam && currentProjectParam !== "null" && currentProjectParam.trim() !== "") {
                 const projArray = currentProjectParam.split(',');
                 document.querySelectorAll('.project-checkbox').forEach(cb => {
                     cb.checked = projArray.includes(cb.value);
                 });
-                updateMultiSelectText('project', 'All Projects');
+                updateMultiSelectText('project', 'Select Project(s)');
             } else {
-                updateMultiSelectText('project', 'All Projects');
+                updateMultiSelectText('project', 'Select Project(s)');
             }
 
             const tzVal = url.searchParams.get('tz');
@@ -485,6 +485,8 @@
             url.searchParams.delete('source');
             url.searchParams.delete('glint_show');
             url.searchParams.delete('glint_angle');
+            url.searchParams.delete('project');
+            url.searchParams.delete('line');
             window.history.pushState({}, '', url);
 
             document.getElementById('filter-source').value = ''; 
@@ -500,7 +502,7 @@
             
             document.querySelectorAll('.project-checkbox').forEach(cb => cb.checked = false);
             document.querySelectorAll('.line-checkbox').forEach(cb => cb.checked = false);
-            updateMultiSelectText('project', 'All Projects');
+            updateMultiSelectText('project', 'Select Project(s)');
             updateMultiSelectText('line', 'All Lines');
             
             updateDependentDropdowns().then(() => fetchWaterLevels());
@@ -620,7 +622,6 @@
             }
         }
 
-        // Cache for all features to prevent re-fetching when only UI tools change
         let cachedFeatures = [];
 
         async function fetchWaterLevels() {
@@ -629,17 +630,25 @@
             const currentUrl = window.location.search;
             const urlParams = new URLSearchParams(currentUrl);
             
-            // Reconstruct URL WITHOUT glint params to check if we actually need to fetch ArcGIS data
+            const tzSetting = urlParams.get('tz') || 'local';
+            const selectedDate = urlParams.get('date_');
+            const projectParam = urlParams.get('project');
+
+            // Block empty queries and display No Data message
+            if (!projectParam || projectParam === "null" || projectParam.trim() === "") {
+                cachedFeatures = [];
+                processAndDraw([], selectedDate, tzSetting);
+                return; 
+            }
+
             const checkParams = new URLSearchParams(currentUrl);
             checkParams.delete('glint_show');
             checkParams.delete('glint_angle');
             const dataStateUrl = checkParams.toString();
 
-            // Attach glint state on the main URL tracker so it doesn't loop, but check if we need new data
             if (currentUrl === lastUrl && mainChart) return;
             lastUrl = currentUrl;
 
-            // Only fetch if core data filters changed
             if (cachedFeatures.length > 0 && !window.lastDataStateUrl) window.lastDataStateUrl = "";
             
             if (dataStateUrl !== window.lastDataStateUrl) {
@@ -665,7 +674,6 @@
                     }
                 });
 
-                const selectedDate = urlParams.get('date_');
                 if (selectedDate && selectedDate !== "null") {
                     const parts = selectedDate.split('-');
                     const centerDate = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -685,7 +693,6 @@
                     sqlWhere += ` AND date_ IN ('${d1}', '${d2}', '${d3}')`;
                 }
 
-                // Add glint_series to the payload request
                 const params = new URLSearchParams({ 
                     where: sqlWhere, 
                     outFields: "project,line_name,start,end_,datum,source,date_,glint_series", 
@@ -727,9 +734,6 @@
                     console.error("Fetch failed:", error); 
                 }
             }
-
-            const tzSetting = urlParams.get('tz') || 'local';
-            const selectedDate = urlParams.get('date_');
             
             if (cachedFeatures.length > 0 || mainChart) {
                 processAndDraw(cachedFeatures, selectedDate, tzSetting);
@@ -805,7 +809,6 @@
                 }
             }
 
-            // Extract Glint UI Settings
             const showGlint = document.getElementById('filter-glint-show').checked;
             const glintAngle = parseFloat(document.getElementById('filter-glint-angle').value) || 40;
 
@@ -821,7 +824,6 @@
                         adjEnd += getTzOffsetMs(glintEnd, tzSetting);
                     }
 
-                    // --- Format the Start and End Times for the Label ---
                     const startD = new Date(adjStart);
                     const endD = new Date(adjEnd);
                     
@@ -832,7 +834,7 @@
                     
                     const sTime = String(sH).padStart(2, '0') + String(sM).padStart(2, '0');
                     const eTime = String(eH).padStart(2, '0') + String(eM).padStart(2, '0');
-                    // ----------------------------------------------------
+
                     glintAnnotations.push({
                         x: adjStart,
                         x2: adjEnd,
@@ -894,26 +896,31 @@
                             else if (glintPct > 0.0) segmentColor = GLINT_COLORS.MINOR;
                             
                             rawChartData.push({
-                                x: lineIdentifier, 
+                                x: lineIdentifier,
                                 y: [segStart, segEnd],
                                 fillColor: segmentColor,
-                                project: projName, datum: dType, source: sName, originalLine: a.line_name,
+                                project: projName, 
+                                datum: dType, 
+                                source: sName, 
+                                originalLine: a.line_name,
                                 glintPct: glintPct,
                                 isHeader: false
                             });
                         });
-                        return; // Successfully parsed, skip fallback
+                        return; 
                     } catch (e) {
                         console.warn(`Failed to parse FMS glint_series for line ${a.line_name}`, e);
                     }
                 }
 
-                // Fallback rendering
                 rawChartData.push({
                     x: lineIdentifier, 
                     y: [startT, endT],
                     fillColor: defaultColor,
-                    project: projName, datum: dType, source: sName, originalLine: a.line_name,
+                    project: projName, 
+                    datum: dType, 
+                    source: sName, 
+                    originalLine: a.line_name,
                     glintPct: 0.0,
                     isHeader: false
                 });
@@ -977,7 +984,9 @@
                     style: { fontSize: '11px', fontWeight: 500, fontFamily: 'Segoe UI' },
                     formatter: function(val) {
                         if (val === undefined || val === null) return "";
+                        
                         if (Array.isArray(val) && !String(val[0]).includes('|||')) return val; 
+
                         let strVal = Array.isArray(val) ? val.join(" ") : String(val);
                         
                         const parts = strVal.split('|||');
@@ -1033,6 +1042,16 @@
 
             const mainOptions = {
                 series: [{ data: chartData }],
+                noData: {
+                    text: 'Please select a Project from the dropdown to load flightlines.',
+                    align: 'center',
+                    verticalAlign: 'middle',
+                    style: {
+                        color: '#888888',
+                        fontSize: '16px',
+                        fontFamily: 'Segoe UI'
+                    }
+                },
                 chart: { 
                     type: 'rangeBar', height: calculatedHeight, id: 'main-chart',
                     toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
@@ -1043,7 +1062,7 @@
                         scrolled: syncAxes
                     }
                 },
-                plotOptions: { bar: { horizontal: true, barHeight: '40%', borderRadius: 0 } }, // Set border radius to 0 for continuous visuals
+                plotOptions: { bar: { horizontal: true, barHeight: '40%', borderRadius: 0 } }, 
                 
                 dataLabels: {
                     enabled: true,
