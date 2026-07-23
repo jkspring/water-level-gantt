@@ -863,6 +863,19 @@
             const tzSetting = document.getElementById('filter-tz').value || 'local';
             const useApexUTC = (tzSetting !== 'local');
             
+            // Calculates the shifted date based on the adjusted start time
+            const getAdjustedDate = (ts) => {
+                let t = ts;
+                if (tzSetting !== 'local' && tzSetting !== 'utc') {
+                    t += getTzOffsetMs(t, tzSetting);
+                }
+                const d = new Date(t);
+                const yyyy = useApexUTC ? d.getUTCFullYear() : d.getFullYear();
+                const mm = String((useApexUTC ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2, '0');
+                const dd = String(useApexUTC ? d.getUTCDate() : d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
+
             const formatTime = (ts) => {
                 let t = ts;
                 if (tzSetting !== 'local' && tzSetting !== 'utc') {
@@ -880,11 +893,13 @@
             
             cachedFeatures.forEach(f => {
                 const attr = f.attributes;
-                const dateKey = attr.date_ || 'Unknown Date';
                 const lineName = attr.line_name || 'Unknown Line';
                 const datum = (attr.datum || 'N/A').toUpperCase();
                 const source = (attr.source || 'UNKNOWN').toUpperCase();
                 const proj = attr.project || 'Unknown Project';
+                
+                // Group by the shifted timeline date rather than the raw database date 
+                const dateKey = attr.start ? getAdjustedDate(attr.start) : (attr.date_ || 'Unknown Date');
                 
                 availableDatums.add(datum);
                 
