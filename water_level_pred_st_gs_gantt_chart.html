@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>RSD Water Level Windows Gantt (Short-Term Predictions)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
@@ -41,6 +42,7 @@
         #ui_controls button {
             background-color: #008FFB; border: none; cursor: pointer;
             font-weight: 600; transition: background 0.2s;
+            white-space: nowrap; /* Prevent text from wrapping onto a second line */
         }
         #ui_controls button:hover { background-color: #0076d1; }
         
@@ -105,13 +107,16 @@
             border-collapse: collapse; color: #fff; font-size: 13px;
         }
         table.water-level-table th, table.water-level-table td {
-            border: 1px solid #444; padding: 8px 12px; text-align: left;
+            border: 1px solid #444; padding: 8px 12px;
+        }
+        table.water-level-table td {
+            text-align: left;
         }
         table.water-level-table th {
-            background-color: #333; position: sticky; top: 0; z-index: 5; font-weight: 600;
+            background-color: #333; position: sticky; top: 0; z-index: 5; font-weight: 600; text-align: left;
         }
         table.water-level-table tr.date-header td {
-            background-color: #2a2a2a; font-weight: bold; color: #00E396; padding-top: 12px;
+            background-color: #2a2a2a; font-weight: bold; color: #00E396; padding-top: 12px; text-align: left;
         }
         table.water-level-table tr:hover { background-color: #222; }
         
@@ -123,6 +128,52 @@
         #top_axis_wrapper::-webkit-scrollbar-thumb, #bottom_axis_wrapper::-webkit-scrollbar-thumb { background: transparent; border: none; }
         #top_axis_wrapper::-webkit-scrollbar-track, #bottom_axis_wrapper::-webkit-scrollbar-track { border-left: transparent; }
 
+        /* --- MOBILE RESPONSIVENESS --- */
+        @media (max-width: 768px) {
+            #ui_controls {
+                max-height: 45vh; 
+                overflow-y: auto;
+                align-items: stretch;
+                padding: 10px;
+                gap: 8px;
+            }
+            .custom-select-wrapper, #filter-source, #filter-datum, #filter-tz, #ui_controls > button {
+                width: 100%; 
+                flex: 1 1 100%;
+            }
+            #ui_controls select, #ui_controls input[type="date"], #ui_controls input[type="number"], #ui_controls button, .custom-select-box {
+                height: 42px; /* Enlarge tap targets for mobile */
+                font-size: 14px;
+            }
+            .rocker-group {
+                width: 100%;
+                flex: 1 1 100%;
+                border-left: none !important; /* Removes separator line from desktop view */
+                padding-left: 0 !important;
+            }
+            .rocker-group button {
+                height: 42px; 
+                flex: 0 0 50px;
+                font-size: 14px;
+            }
+            .rocker-group .custom-select-wrapper, .rocker-group input[type="date"] {
+                flex: 1 1 auto;
+                width: auto;
+            }
+            #filter-glint-angle {
+                width: 65px !important;
+                flex: 0 0 65px !important;
+            }
+            .checkbox-label {
+                font-size: 14px;
+                flex: 1;
+            }
+            #table_wrapper { padding: 10px; }
+            table.water-level-table th, table.water-level-table td {
+                padding: 8px 6px; 
+                font-size: 12px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -172,13 +223,13 @@
                 <input type="checkbox" id="filter-glint-show"> Show Glint
             </label>
             <input type="number" id="filter-glint-angle" value="40" min="0" max="90" style="width: 55px;" title="Cutoff Angle (Degrees)">
-            <span style="color: #ccc; font-size: 11px;">&deg;</span>
+            <span style="color: #ccc; font-size: 11px; margin-right: 5px;">&deg;</span>
         </div>
 
         <!-- VIEW TOGGLES -->
         <div class="rocker-group" style="padding-left: 10px; border-left: 1px solid #444;">
-            <button id="btn-view-chart" class="active-view" onclick="switchView('chart')">Chart View</button>
-            <button id="btn-view-table" onclick="switchView('table')">Table View</button>
+            <button id="btn-view-chart" class="active-view" onclick="switchView('chart')" style="flex: 1;">Chart View</button>
+            <button id="btn-view-table" onclick="switchView('table')" style="flex: 1;">Table View</button>
         </div>
 
         <button onclick="resetFilters()">Reset Filters</button>
@@ -465,6 +516,12 @@
             const url = new URL(window.location);
             let urlChanged = false;
 
+            // Default Source to PYDRO if not explicitly set
+            if (!url.searchParams.has('source')) {
+                url.searchParams.set('source', 'PYDRO');
+                urlChanged = true;
+            }
+
             let currentDateParam = url.searchParams.get('date_');
             if (!currentDateParam || currentDateParam === "null") {
                 currentDateParam = getTodayString();
@@ -537,14 +594,15 @@
             const todayStr = getTodayString();
             
             url.searchParams.set('date_', todayStr);
-            url.searchParams.delete('source');
+            url.searchParams.set('source', 'PYDRO'); // Set PYDRO as default upon reset
             url.searchParams.delete('glint_show');
             url.searchParams.delete('glint_angle');
             url.searchParams.delete('project');
+            url.searchParams.delete('datum');
             url.searchParams.delete('line');
             window.history.pushState({}, '', url);
 
-            document.getElementById('filter-source').value = ''; 
+            document.getElementById('filter-source').value = 'PYDRO'; 
             document.getElementById('filter-datum').value = '';
             document.getElementById('filter-tz').value = 'local';
             document.getElementById('filter-date_').value = todayStr;
@@ -805,7 +863,6 @@
             const tzSetting = document.getElementById('filter-tz').value || 'local';
             const useApexUTC = (tzSetting !== 'local');
             
-            // Format time helper function for table cells
             const formatTime = (ts) => {
                 let t = ts;
                 if (tzSetting !== 'local' && tzSetting !== 'utc') {
@@ -817,29 +874,35 @@
                 return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
             };
 
-            // Group data logically: Date -> Line Name -> Datum -> Array of Time Ranges
             const groupedData = {};
             const availableDatums = new Set();
+            const projectsByDate = {}; 
             
             cachedFeatures.forEach(f => {
                 const attr = f.attributes;
                 const dateKey = attr.date_ || 'Unknown Date';
                 const lineName = attr.line_name || 'Unknown Line';
                 const datum = (attr.datum || 'N/A').toUpperCase();
+                const source = (attr.source || 'UNKNOWN').toUpperCase();
+                const proj = attr.project || 'Unknown Project';
                 
                 availableDatums.add(datum);
                 
+                if (!projectsByDate[dateKey]) projectsByDate[dateKey] = new Set();
+                projectsByDate[dateKey].add(proj);
+                
                 if (!groupedData[dateKey]) groupedData[dateKey] = {};
-                if (!groupedData[dateKey][lineName]) groupedData[dateKey][lineName] = {};
-                if (!groupedData[dateKey][lineName][datum]) groupedData[dateKey][lineName][datum] = [];
+                // Unique row identified by line AND source
+                const rowKey = `${lineName}|||${source}`;
+                if (!groupedData[dateKey][rowKey]) groupedData[dateKey][rowKey] = {};
+                if (!groupedData[dateKey][rowKey][datum]) groupedData[dateKey][rowKey][datum] = [];
                 
                 const startStr = formatTime(attr.start);
                 const endStr = formatTime(attr.end_);
-                groupedData[dateKey][lineName][datum].push(`${startStr}-${endStr}`);
+                groupedData[dateKey][rowKey][datum].push(`${startStr}-${endStr}`);
             });
             
             const sortedDatums = Array.from(availableDatums).sort((a, b) => {
-                // Ensure MLLW typically comes first if present
                 if(a === 'MLLW') return -1;
                 if(b === 'MLLW') return 1;
                 return a.localeCompare(b);
@@ -848,19 +911,27 @@
             const sortedDates = Object.keys(groupedData).sort();
             
             let tableHtml = `<table class="water-level-table">`;
-            tableHtml += `<thead><tr><th>Line Identifier</th>`;
-            sortedDatums.forEach(d => { tableHtml += `<th>${d}</th>`; });
+            tableHtml += `<thead><tr><th style="text-align: center;">Flight Line</th><th style="text-align: center;">Source</th>`;
+            sortedDatums.forEach(d => { tableHtml += `<th style="text-align: left;">${d}</th>`; });
             tableHtml += `</tr></thead><tbody>`;
 
             sortedDates.forEach(date => {
-                tableHtml += `<tr class="date-header"><td colspan="${sortedDatums.length + 1}">${date}</td></tr>`;
+                const uniqueProjs = Array.from(projectsByDate[date]).join(', ');
+                tableHtml += `<tr class="date-header"><td colspan="${sortedDatums.length + 2}">${date} <span style="color: #FFAB00; margin-left: 10px; font-size: 0.95em; font-weight: 600;">${uniqueProjs}</span></td></tr>`;
                 
-                const sortedLines = Object.keys(groupedData[date]).sort();
-                sortedLines.forEach(line => {
-                    tableHtml += `<tr><td>${line}</td>`;
+                const sortedRowKeys = Object.keys(groupedData[date]).sort();
+                sortedRowKeys.forEach(rowKey => {
+                    const [line, src] = rowKey.split('|||');
+                    
+                    // Assign colors matching the Y-axis formatting logic
+                    let srcColor = '#ffffff';
+                    if (src === 'PYDRO') srcColor = '#eb97d8';
+                    else if (src === 'STOFS') srcColor = '#80ecf0';
+
+                    tableHtml += `<tr><td style="text-align: center;">${line}</td><td style="text-align: center; color:${srcColor}; font-weight:600;">${src}</td>`;
                     
                     sortedDatums.forEach(datum => {
-                        const timesArray = groupedData[date][line][datum];
+                        const timesArray = groupedData[date][rowKey][datum];
                         if (timesArray && timesArray.length > 0) {
                             tableHtml += `<td>${timesArray.join(' &nbsp; ')}</td>`;
                         } else {
