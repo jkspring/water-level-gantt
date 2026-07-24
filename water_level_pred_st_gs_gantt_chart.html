@@ -79,6 +79,14 @@
         .rocker-group button:hover { background-color: #555; }
         .checkbox-label { color: #fff; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 
+        #last-run-time {
+            color: #00E396; 
+            font-size: 12px; 
+            font-weight: 600; 
+            margin-left: auto; 
+            padding-left: 10px;
+        }
+
         /* --- 3-TIER CHART ARCHITECTURE --- */
         #top_axis_wrapper {
             flex: 0 0 45px; width: 100%; background-color: #1a1a1a;
@@ -168,6 +176,13 @@
                 font-size: 14px;
                 flex: 1;
             }
+            #last-run-time {
+                width: 100%;
+                text-align: center;
+                margin-left: 0;
+                padding-left: 0;
+                margin-top: 5px;
+            }
             #table_wrapper { padding: 10px; }
             table.water-level-table th, table.water-level-table td {
                 padding: 8px 6px; 
@@ -233,6 +248,8 @@
         </div>
 
         <button onclick="resetFilters()">Reset Filters</button>
+
+        <div id="last-run-time">Last Run: N/A</div>
     </div>
 
     <!-- CHART CONTAINERS -->
@@ -804,9 +821,10 @@
                     sqlWhere += ` AND date_ IN ('${d1}', '${d2}', '${d3}')`;
                 }
 
+                // Add 'filename' to outFields to extract Last Run timestamp
                 const params = new URLSearchParams({ 
                     where: sqlWhere, 
-                    outFields: "project,line_name,start,end_,datum,source,date_,glint_series", 
+                    outFields: "project,line_name,start,end_,datum,source,date_,glint_series,filename", 
                     orderByFields: "project ASC, line_name ASC, start ASC", 
                     returnGeometry: "true", 
                     outSR: "4326",
@@ -844,6 +862,48 @@
                 } catch (error) { 
                     console.error("Fetch failed:", error); 
                 }
+            }
+
+            // Extract and Display Last Run Time
+            let lastRunText = "N/A";
+            if (cachedFeatures.length > 0) {
+                let maxTime = 0;
+                cachedFeatures.forEach(f => {
+                    if (f.attributes.filename) {
+                        // Looks for _YYYYMMDD_HHMMSS pattern in filename
+                        const match = f.attributes.filename.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+                        if (match) {
+                            const ts = Date.UTC(parseInt(match[1]), parseInt(match[2])-1, parseInt(match[3]), parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
+                            if (ts > maxTime) maxTime = ts;
+                        }
+                    }
+                });
+                
+                if (maxTime > 0) {
+                    const useApexUTC = (tzSetting !== 'local');
+                    let adjTime = maxTime;
+                    
+                    if (tzSetting !== 'local' && tzSetting !== 'utc') {
+                        adjTime += getTzOffsetMs(adjTime, tzSetting);
+                    }
+                    
+                    const d = new Date(adjTime);
+                    const yyyy = useApexUTC ? d.getUTCFullYear() : d.getFullYear();
+                    const mm = String((useApexUTC ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2, '0');
+                    const dd = String(useApexUTC ? d.getUTCDate() : d.getDate()).padStart(2, '0');
+                    const hh = String(useApexUTC ? d.getUTCHours() : d.getHours()).padStart(2, '0');
+                    const mins = String(useApexUTC ? d.getUTCMinutes() : d.getMinutes()).padStart(2, '0');
+                    
+                    const tzSelect = document.getElementById('filter-tz');
+                    const tzName = tzSelect.options[tzSelect.selectedIndex].text.split(' (')[0];
+                    
+                    lastRunText = `${yyyy}-${mm}-${dd} ${hh}:${mins} ${tzName}`;
+                }
+            }
+            
+            const lastRunEl = document.getElementById('last-run-time');
+            if (lastRunEl) {
+                lastRunEl.innerText = `Last Run: ${lastRunText}`;
             }
             
             if (cachedFeatures.length > 0 || mainChart) {
