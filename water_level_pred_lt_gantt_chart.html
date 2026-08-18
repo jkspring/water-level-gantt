@@ -2,10 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RSD Water Level Windows Gantt (Long-Term Predictions No Residuals)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>RSD Water Level Windows Gantt (Long-Term Predictions)</title>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
     <style>
-        /* Layout constraints */
+        /* Bulletproof layout constraints */
         html, body { 
             margin: 0; padding: 0; 
             width: 100vw; height: 100vh; 
@@ -16,7 +18,7 @@
             flex-direction: column;
         }
         
-        /* UI Bar - Compact (Matched to ST) */
+        /* UI Bar - Compact */
         #ui_controls {
             flex: 0 0 auto; 
             display: flex;
@@ -29,7 +31,7 @@
             z-index: 20;
         }
         
-        #ui_controls select, #ui_controls input[type="date"], #ui_controls button {
+        #ui_controls select, #ui_controls input[type="date"], #ui_controls input[type="number"], #ui_controls button {
             background-color: #333; color: #fff; border: 1px solid #555;
             padding: 4px 10px; border-radius: 4px; font-family: inherit;
             font-size: 12px; outline: none; height: 28px; box-sizing: border-box;
@@ -40,10 +42,15 @@
         #ui_controls button {
             background-color: #008FFB; border: none; cursor: pointer;
             font-weight: 600; transition: background 0.2s;
+            white-space: nowrap; 
         }
         #ui_controls button:hover { background-color: #0076d1; }
+        
+        #ui_controls button.active-view {
+            background-color: #00E396; color: #111;
+        }
 
-        /* Custom Multi-Select - Compact */
+        /* Custom Multi-Select */
         .custom-select-wrapper { position: relative; width: 170px; user-select: none; }
         .custom-select-box {
             background-color: #333; color: #fff; border: 1px solid #555;
@@ -66,10 +73,19 @@
         .custom-select-options label:hover { background-color: #444; color: #fff; }
         .custom-select-options input[type="checkbox"] { margin: 0; cursor: pointer; }
 
-        /* Rocker Groups (Matched to ST) */
+        /* Rocker Groups */
         .rocker-group { display: flex; align-items: center; gap: 4px; }
         .rocker-group button { padding: 0 8px; font-size: 11px; background-color: #444; height: 28px; border-radius: 4px; }
         .rocker-group button:hover { background-color: #555; }
+        .checkbox-label { color: #fff; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+        #last-run-time {
+            color: #00E396; 
+            font-size: 12px; 
+            font-weight: 600; 
+            margin-left: auto; 
+            padding-left: 10px;
+        }
 
         /* --- 3-TIER CHART ARCHITECTURE --- */
         #top_axis_wrapper {
@@ -87,16 +103,67 @@
             overflow-y: scroll; overflow-x: hidden; 
         }
         
-        #chart_container, #top_axis_container, #bottom_axis_container { width: 100%; }
+        #chart_container { width: 100%; }
+
+        /* --- TABLE ARCHITECTURE --- */
+        #table_wrapper {
+            flex: 1 1 auto; width: 100%; background-color: #1a1a1a;
+            overflow-y: auto; overflow-x: auto; padding: 20px; display: none; box-sizing: border-box;
+        }
+        table.water-level-table {
+            width: 100%; max-width: 1200px; margin: 0 auto;
+            border-collapse: collapse; color: #fff; font-size: 13px;
+        }
+        table.water-level-table th, table.water-level-table td {
+            border: 1px solid #444; padding: 8px 12px;
+        }
+        table.water-level-table td {
+            text-align: left;
+        }
+        table.water-level-table th {
+            background-color: #333; position: sticky; top: 0; z-index: 5; font-weight: 600; text-align: left;
+        }
+        table.water-level-table tr.date-header td {
+            background-color: #2a2a2a; font-weight: bold; color: #00E396; padding-top: 12px; text-align: left;
+        }
+        table.water-level-table tr:hover { background-color: #222; }
         
         /* Dark Mode Scrollbars */
-        ::-webkit-scrollbar { width: 14px; }
+        ::-webkit-scrollbar { width: 14px; height: 14px; }
         ::-webkit-scrollbar-track { background: #1a1a1a; border-left: 1px solid #333; }
         ::-webkit-scrollbar-thumb { background: #444; border-radius: 7px; border: 3px solid #1a1a1a; }
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         #top_axis_wrapper::-webkit-scrollbar-thumb, #bottom_axis_wrapper::-webkit-scrollbar-thumb { background: transparent; border: none; }
         #top_axis_wrapper::-webkit-scrollbar-track, #bottom_axis_wrapper::-webkit-scrollbar-track { border-left: transparent; }
 
+        /* --- MOBILE RESPONSIVENESS --- */
+        @media (max-width: 768px) {
+            #ui_controls {
+                max-height: 45vh; 
+                overflow-y: auto;
+                align-items: stretch;
+                padding: 10px;
+                gap: 8px;
+            }
+            .custom-select-wrapper, #filter-source, #filter-datum, #filter-completion, #filter-tz, #ui_controls > button {
+                width: 100%; 
+                flex: 1 1 100%;
+            }
+            #ui_controls select, #ui_controls input[type="date"], #ui_controls input[type="number"], #ui_controls button, .custom-select-box {
+                height: 42px; font-size: 14px;
+            }
+            .rocker-group {
+                width: 100%; flex: 1 1 100%;
+                border-left: none !important; padding-left: 0 !important;
+            }
+            .rocker-group button { height: 42px; flex: 0 0 50px; font-size: 14px; }
+            .rocker-group .custom-select-wrapper, .rocker-group input[type="date"] { flex: 1 1 auto; width: auto; }
+            #filter-glint-angle { width: 65px !important; flex: 0 0 65px !important; }
+            .checkbox-label { font-size: 14px; flex: 1; }
+            #last-run-time { width: 100%; text-align: center; margin-left: 0; padding-left: 0; margin-top: 5px; }
+            #table_wrapper { padding: 10px; }
+            table.water-level-table th, table.water-level-table td { padding: 8px 6px; font-size: 12px; }
+        }
     </style>
 </head>
 <body>
@@ -104,25 +171,35 @@
     <div id="ui_controls">
         <div class="custom-select-wrapper" id="project-dropdown-wrapper">
             <div class="custom-select-box" onclick="toggleDropdown('filter-project-options')">
-                <span id="project-select-text">Loading...</span> <span style="font-size: 10px;">▼</span>
+                <span id="project-select-text">Select Project(s)</span> <span style="font-size: 10px;">▼</span>
             </div>
             <div class="custom-select-options" id="filter-project-options"></div>
         </div>
 
         <select id="filter-source"><option value="">All Sources</option></select>
         <select id="filter-datum"><option value="">All Datums</option></select>
+        
+        <select id="filter-completion">
+            <option value="">Line Completion Status</option>
+            <option value="completed">Completed Stages</option>
+            <option value="incomplete">Incomplete Stages</option>
+        </select>
 
-        <div class="custom-select-wrapper" id="line-dropdown-wrapper">
-            <div class="custom-select-box" onclick="toggleDropdown('filter-line-options')">
-                <span id="line-select-text">All Lines</span> <span style="font-size: 10px;">▼</span>
+        <div class="rocker-group">
+            <button onclick="adjustLine(-1)" title="Previous Line">&#9664;</button>
+            <div class="custom-select-wrapper" id="line-dropdown-wrapper">
+                <div class="custom-select-box" onclick="toggleDropdown('filter-line-options')">
+                    <span id="line-select-text">All Lines</span> <span style="font-size: 10px;">▼</span>
+                </div>
+                <div class="custom-select-options" id="filter-line-options"></div>
             </div>
-            <div class="custom-select-options" id="filter-line-options"></div>
+            <button onclick="adjustLine(1)" title="Next Line">&#9654;</button>
         </div>
         
         <div class="rocker-group">
             <button onclick="adjustDateRange(-1)" title="Previous Window">&#9664;</button>
             <input type="date" id="filter-start-date">
-            <span style="color:#aaa; font-size:11px;">to</span>
+            <span style="color:#aaa; font-size:11px; padding:0 4px;">to</span>
             <input type="date" id="filter-end-date">
             <button onclick="adjustDateRange(1)" title="Next Window">&#9654;</button>
         </div>
@@ -137,22 +214,50 @@
             <option value="America/Anchorage" data-name="Alaska Time">Alaska Time</option>
             <option value="Pacific/Honolulu" data-name="Hawaii Time">Hawaii Time</option>
         </select>
+        
+        <div class="rocker-group" style="padding-left: 10px; border-left: 1px solid #444;">
+            <label class="checkbox-label" title="Toggle Sun Glint Zone">
+                <input type="checkbox" id="filter-glint-show"> Show Glint
+            </label>
+            <input type="number" id="filter-glint-angle" value="40" min="0" max="90" style="width: 55px;" title="Cutoff Angle (Degrees)">
+            <span style="color: #ccc; font-size: 11px; margin-right: 5px;">&deg;</span>
+        </div>
+
+        <div class="rocker-group" style="padding-left: 10px; border-left: 1px solid #444;">
+            <button id="btn-view-chart" class="active-view" onclick="switchView('chart')" style="flex: 1;">Chart View</button>
+            <button id="btn-view-table" onclick="switchView('table')" style="flex: 1;">Table View</button>
+        </div>
 
         <button onclick="resetFilters()">Reset Filters</button>
+
+        <div id="last-run-time">Last Run: N/A</div>
     </div>
 
+    <!-- CHART CONTAINERS -->
     <div id="top_axis_wrapper"><div id="top_axis_container"></div></div>
     <div id="chart_wrapper"><div id="chart_container"></div></div>
     <div id="bottom_axis_wrapper"><div id="bottom_axis_container"></div></div>
 
+    <!-- TABLE CONTAINER -->
+    <div id="table_wrapper"><div id="table_container"></div></div>
+
     <script type="text/javascript">
+        // Dual API Keys explicitly implemented
         const featureServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/rsd_water_levels_pred_lt/FeatureServer/0/query";
-        const apiKey = "AAPTaKfT5Tq7TMO2rOvDA__smyA..OiquP8mmd6ImdB_AF3Tz3gE3WORcyfrRSQuFw3necsBu7aHr-qkOWlVT79xocmJv7AP4gJh1Xztizmw6MlOBQ-9JkLUA2cUVtirQd-1h1lfKVJlT4p5vXhz7BzfyqyUZ2ZTDx_43yA-MNBZ3YWixdQt8_OSCH085XHnoBosITA2q7ikbf5dDllE_PfjyACTk254PS1SLzY3T5ntbyzPWjeE78Kqqs8jKXe6ZNBBLh4wF5ZNYOXV1ZPQjnug0mjXk5qvxXsCrAT1_qwYxq0aX"; 
+        const waterLevelApiKey = "AAPTaKfT5Tq7TMO2rOvDA__smyA..OiquP8mmd6ImdB_AF3Tz3gE3WORcyfrRSQuFw3necsBu7aHr-qkOWlVT79xocmJv7AP4gJh1Xztizmw6MlOBQ-9JkLUA2cUVtirQd-1h1lfKVJlT4p5vXhz7BzfyqyUZ2ZTDx_43yA-MNBZ3YWixdQt8_OSCH085XHnoBosITA2q7ikbf5dDllE_PfjyACTk254PS1SLzY3T5ntbyzPWjeE78Kqqs8jKXe6ZNBBLh4wF5ZNYOXV1ZPQjnug0mjXk5qvxXsCrAT1_qwYxq0aX"; 
+        
+        const flightCardServiceUrl = "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/db_flight_lines/FeatureServer/0/query";
+        const flightCardApiKey = "AAPTa7H7lF7FgRZozhMFwPOd-sQ..T99jVoD9WeupCl2WfaW7sAWpVuOoyLAPvlJrj-RGb63wqvmIRC6jJow45ti2J9e-GkTGDdEPhoDyG94VMx3-Cb0lRNecDI4jPRmHTnco3YikQtIseu8ZzQJ2eXH-WWkxuR20pZES6sZLEUZL9AfoSlJ1E8fHuHaYsOQ-b2fP9KO1XDw3xHmcQKzkfymEGbw4wfzgGcg-27qGJGq3i-nbfaMFpuW87kqwdVFcsP2e98e9J0sKWiJkxSOIeyfq_Iu5glqw-0eYAT1_CNPm5FcM";
         
         let mainChart, topChart, bottomChart;
         let lastUrl = ""; 
+        let currentView = 'chart';
+        
+        let completionDataCache = {};
+        let isCompletionDataLoaded = false;
+        
+        const normalizeStr = (val) => String(val || "").trim().toUpperCase();
 
-        // --- TOOLTIP BOUNDS ENFORCER ---
         let tooltipObserver = null;
         function enforceTooltipBounds() {
             const chartWrapper = document.getElementById('chart_wrapper');
@@ -195,10 +300,34 @@
 
         document.getElementById('chart_wrapper').addEventListener('scroll', enforceTooltipBounds);
 
+        // --- VIEW SWITCHING LOGIC ---
+        function switchView(viewName) {
+            currentView = viewName;
+            
+            const chartEls = [document.getElementById('top_axis_wrapper'), document.getElementById('chart_wrapper'), document.getElementById('bottom_axis_wrapper')];
+            const tableEl = document.getElementById('table_wrapper');
+            
+            const btnChart = document.getElementById('btn-view-chart');
+            const btnTable = document.getElementById('btn-view-table');
+
+            if (viewName === 'chart') {
+                chartEls.forEach(el => el.style.display = 'block');
+                tableEl.style.display = 'none';
+                btnChart.classList.add('active-view');
+                btnTable.classList.remove('active-view');
+            } else {
+                chartEls.forEach(el => el.style.display = 'none');
+                tableEl.style.display = 'block';
+                btnTable.classList.add('active-view');
+                btnChart.classList.remove('active-view');
+                renderTable();
+            }
+        }
+
         function sanitizeArcGISParams() {
             const url = new URL(window.location);
             let cleaned = false;
-            ['project', 'line', 'start_date', 'end_date', 'source', 'datum', 'tz'].forEach(p => {
+            ['project', 'line', 'start_date', 'end_date', 'source', 'datum', 'tz', 'glint_show', 'glint_angle', 'completion'].forEach(p => {
                 let v = url.searchParams.get(p);
                 if (v && (v.includes('{') || v.includes('}'))) {
                     url.searchParams.delete(p);
@@ -225,7 +354,7 @@
         }
 
         async function handleMultiSelectChange(paramName) {
-            updateMultiSelectText(paramName, paramName === 'project' ? 'All Projects' : 'All Lines');
+            updateMultiSelectText(paramName, paramName === 'project' ? 'Select Project(s)' : 'All Lines');
             const checkedBoxes = document.querySelectorAll(`.${paramName}-checkbox:checked`);
             const selectedVals = Array.from(checkedBoxes).map(cb => cb.value);
             
@@ -236,6 +365,28 @@
             window.history.pushState({}, '', currentUrl);
             if (paramName === 'project') await updateDependentDropdowns();
             fetchWaterLevels();
+        }
+
+        function adjustLine(direction) {
+            const checkboxes = Array.from(document.querySelectorAll('.line-checkbox'));
+            if (checkboxes.length === 0) return; 
+            
+            let selectedIndices = [];
+            checkboxes.forEach((cb, idx) => { if (cb.checked) selectedIndices.push(idx); });
+            
+            let currentIndex = -1;
+            if (selectedIndices.length > 0) {
+                currentIndex = direction > 0 ? Math.max(...selectedIndices) : Math.min(...selectedIndices);
+            } else {
+                currentIndex = direction > 0 ? -1 : checkboxes.length;
+            }
+
+            let newIndex = currentIndex + direction;
+            if (newIndex < 0) newIndex = checkboxes.length - 1; 
+            if (newIndex >= checkboxes.length) newIndex = 0; 
+
+            checkboxes.forEach((cb, idx) => cb.checked = (idx === newIndex));
+            handleMultiSelectChange('line'); 
         }
 
         function getDateString(daysOffset = 0) {
@@ -252,12 +403,16 @@
             const endParts = endInput.value.split('-');
             const startDate = new Date(startParts[0], startParts[1] - 1, startParts[2]);
             const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+            
             let shiftDays = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24));
             if (shiftDays <= 0) shiftDays = 1; 
+            
             startDate.setDate(startDate.getDate() + (direction * shiftDays));
             endDate.setDate(endDate.getDate() + (direction * shiftDays));
+            
             const newStartStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
             const newEndStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+            
             startInput.value = newStartStr;
             endInput.value = newEndStr;
             const url = new URL(window.location);
@@ -272,12 +427,14 @@
             let d = new Date();
             if (dateString) {
                 const parts = dateString.split('-');
-                d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+                d = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0); 
             }
+            
             const tzSelect = document.getElementById('filter-tz');
             Array.from(tzSelect.options).forEach(opt => {
                 const tz = opt.value;
                 let offsetStr = "";
+                
                 if (tz === 'local') {
                     const offsetMinutes = -d.getTimezoneOffset();
                     const sign = offsetMinutes >= 0 ? '+' : '';
@@ -292,6 +449,7 @@
                         else offsetStr = "UTC+0";
                     } catch(e) { offsetStr = "UTC"; }
                 }
+                
                 const baseName = opt.getAttribute('data-name');
                 opt.text = `${baseName} (${offsetStr})`;
             });
@@ -306,12 +464,17 @@
                     sqlWhere += ` AND project IN (${projArray})`;
                 }
             }
-            const params = new URLSearchParams({ where: sqlWhere, outFields: field, returnDistinctValues: "true", returnGeometry: "false", f: "json", token: apiKey });
+            const params = new URLSearchParams({ where: sqlWhere, outFields: field, returnDistinctValues: "true", returnGeometry: "false", f: "json", token: waterLevelApiKey });
             try {
                 const res = await fetch(`${featureServiceUrl}?${params.toString()}`);
                 const data = await res.json();
                 if (data.features) {
-                    const uniqueVals = [...new Set(data.features.map(f => f.attributes[field]).filter(v => v))].sort();
+                    let rawVals = data.features.map(f => f.attributes[field]).filter(v => v);
+                    if (field === 'source' || field === 'datum') {
+                        rawVals = rawVals.map(v => String(v).toUpperCase());
+                    }
+                    const uniqueVals = [...new Set(rawVals)].sort();
+                    
                     if (field === 'project' || field === 'line_name') {
                         const paramName = field === 'line_name' ? 'line' : 'project';
                         const container = document.getElementById(`filter-${paramName}-options`);
@@ -327,19 +490,32 @@
                             const arr = urlVal.split(',');
                             document.querySelectorAll(`.${paramName}-checkbox`).forEach(cb => cb.checked = arr.includes(cb.value));
                         }
-                        updateMultiSelectText(paramName, field === 'project' ? 'All Projects' : 'All Lines');
+                        updateMultiSelectText(paramName, field === 'project' ? 'Select Project(s)' : 'All Lines');
                     } else {
                         const selectEl = document.getElementById(`filter-${field}`);
                         if (selectEl) {
-                            const currentVal = selectEl.value; 
+                            let urlVal = new URL(window.location).searchParams.get(field);
+                            
                             while (selectEl.options.length > 1) selectEl.remove(1);
                             uniqueVals.forEach(val => {
                                 const opt = document.createElement('option');
                                 opt.value = val; opt.textContent = val;
                                 selectEl.appendChild(opt);
                             });
-                            if (currentVal && uniqueVals.includes(currentVal)) selectEl.value = currentVal;
-                            else { selectEl.value = ""; const url = new URL(window.location); url.searchParams.delete(field); window.history.replaceState({}, '', url); }
+                            
+                            const matchedVal = urlVal ? uniqueVals.find(v => v.toUpperCase() === urlVal.toUpperCase()) : null;
+                            
+                            if (matchedVal) {
+                                selectEl.value = matchedVal;
+                                const syncUrl = new URL(window.location);
+                                syncUrl.searchParams.set(field, matchedVal);
+                                window.history.replaceState({}, '', syncUrl);
+                            } else { 
+                                selectEl.value = ""; 
+                                const url = new URL(window.location); 
+                                url.searchParams.delete(field); 
+                                window.history.replaceState({}, '', url); 
+                            }
                         }
                     }
                 }
@@ -350,6 +526,7 @@
 
         async function buildUI() {
             sanitizeArcGISParams(); 
+            
             await loadOptions('project', false);
             const url = new URL(window.location);
             let urlChanged = false;
@@ -358,55 +535,78 @@
             let endDateParam = url.searchParams.get('end_date');
             
             if (!startDateParam || !endDateParam || startDateParam === "null" || endDateParam === "null") {
-                startDateParam = getDateString(0); 
-                endDateParam = getDateString(30); 
+                startDateParam = getDateString(0);
+                endDateParam = getDateString(30);
                 url.searchParams.set('start_date', startDateParam);
                 url.searchParams.set('end_date', endDateParam);
                 urlChanged = true;
             }
-            
             document.getElementById('filter-start-date').value = startDateParam;
             document.getElementById('filter-end-date').value = endDateParam;
             updateTimezoneLabels(startDateParam);
 
             let currentProjectParam = url.searchParams.get('project');
-            if (currentProjectParam && currentProjectParam !== "null") {
+            if (currentProjectParam && currentProjectParam !== "null" && currentProjectParam.trim() !== "") {
                 const projArray = currentProjectParam.split(',');
-                document.querySelectorAll('.project-checkbox').forEach(cb => { cb.checked = projArray.includes(cb.value); });
-                updateMultiSelectText('project', 'All Projects');
-            } else { 
-                const firstProjCb = document.querySelector('.project-checkbox');
-                if (firstProjCb) {
-                    firstProjCb.checked = true;
-                    url.searchParams.set('project', firstProjCb.value);
-                    urlChanged = true;
-                }
-                updateMultiSelectText('project', 'All Projects'); 
+                document.querySelectorAll('.project-checkbox').forEach(cb => {
+                    cb.checked = projArray.includes(cb.value);
+                });
+                updateMultiSelectText('project', 'Select Project(s)');
+            } else {
+                updateMultiSelectText('project', 'Select Project(s)');
+            }
+
+            const tzVal = url.searchParams.get('tz');
+            if (tzVal && tzVal !== "null") {
+                const el = document.getElementById('filter-tz');
+                if (el) el.value = tzVal;
+            }
+            
+            const completionVal = url.searchParams.get('completion');
+            if (completionVal && completionVal !== "null") {
+                const el = document.getElementById('filter-completion');
+                if (el) el.value = completionVal;
+            }
+
+            const glintShowParam = url.searchParams.get('glint_show');
+            if (glintShowParam !== null) {
+                document.getElementById('filter-glint-show').checked = glintShowParam === 'true';
+            }
+            const glintAngleParam = url.searchParams.get('glint_angle');
+            if (glintAngleParam !== null) {
+                document.getElementById('filter-glint-angle').value = glintAngleParam;
             }
 
             if (urlChanged) window.history.replaceState({}, '', url); 
 
-            ['source', 'datum', 'tz'].forEach(param => {
-                const val = url.searchParams.get(param);
-                if (val && val !== "null") {
-                    const el = document.getElementById(`filter-${param}`);
-                    if (el) el.value = val;
-                }
-            });
-
             await updateDependentDropdowns();
 
-            document.querySelectorAll('#filter-source, #filter-datum, #filter-start-date, #filter-end-date, #filter-tz').forEach(el => {
+            document.querySelectorAll('#filter-source, #filter-datum, #filter-completion, #filter-start-date, #filter-end-date, #filter-tz').forEach(el => {
                 el.addEventListener('change', async (e) => {
                     const currentUrl = new URL(window.location);
                     let paramName = e.target.id.replace('filter-', '');
                     if(paramName === 'start-date') paramName = 'start_date';
                     if(paramName === 'end-date') paramName = 'end_date';
+                    
                     if (e.target.value) currentUrl.searchParams.set(paramName, e.target.value); 
                     else currentUrl.searchParams.delete(paramName); 
                     window.history.pushState({}, '', currentUrl);
                     fetchWaterLevels(); 
                 });
+            });
+
+            document.getElementById('filter-glint-show').addEventListener('change', (e) => {
+                const currentUrl = new URL(window.location);
+                currentUrl.searchParams.set('glint_show', e.target.checked);
+                window.history.pushState({}, '', currentUrl);
+                fetchWaterLevels();
+            });
+
+            document.getElementById('filter-glint-angle').addEventListener('input', (e) => {
+                const currentUrl = new URL(window.location);
+                currentUrl.searchParams.set('glint_angle', e.target.value);
+                window.history.pushState({}, '', currentUrl);
+                fetchWaterLevels();
             });
 
             fetchWaterLevels(); 
@@ -420,24 +620,31 @@
             url.searchParams.set('start_date', startStr);
             url.searchParams.set('end_date', endStr);
 
-            document.getElementById('filter-source').value = '';
+            url.searchParams.delete('glint_show');
+            url.searchParams.delete('glint_angle');
+            url.searchParams.delete('completion');
+            url.searchParams.delete('datum');
+            url.searchParams.delete('line');
+            url.searchParams.delete('source');
+            url.searchParams.delete('project');
+
+            document.getElementById('filter-source').value = ''; 
             document.getElementById('filter-datum').value = '';
+            document.getElementById('filter-completion').value = '';
             document.getElementById('filter-tz').value = 'local';
             document.getElementById('filter-start-date').value = startStr;
             document.getElementById('filter-end-date').value = endStr;
+            
+            document.getElementById('filter-glint-show').checked = false;
+            document.getElementById('filter-glint-angle').value = '40';
+
             updateTimezoneLabels(startStr);
             
-            document.querySelectorAll('.project-checkbox').forEach((cb, idx) => { cb.checked = (idx === 0); });
-            const firstProjCb = document.querySelector('.project-checkbox');
-            if (firstProjCb) {
-                url.searchParams.set('project', firstProjCb.value);
-            } else {
-                url.searchParams.delete('project');
-            }
+            document.querySelectorAll('.project-checkbox').forEach(cb => cb.checked = false);
             window.history.pushState({}, '', url);
             
             document.querySelectorAll('.line-checkbox').forEach(cb => cb.checked = false);
-            updateMultiSelectText('project', 'All Projects');
+            updateMultiSelectText('project', 'Select Project(s)');
             updateMultiSelectText('line', 'All Lines');
             
             updateDependentDropdowns().then(() => fetchWaterLevels());
@@ -468,11 +675,9 @@
                             t.setAttribute('fill', targetColor); 
                             t.style.fill = targetColor; 
                             t.style.fontWeight = 'bold';
-                            
                             t.setAttribute('text-anchor', 'end'); 
                             t.style.textAnchor = 'end';
                             t.setAttribute('x', parentX);
-                            
                             if (i === 0) t.setAttribute('dy', '-0.2em'); 
                             if (i === 1) t.setAttribute('dy', '1.2em');
                         });
@@ -489,13 +694,25 @@
                     label.setAttribute('fill', targetColor); 
                     label.style.fill = targetColor;
                     label.style.fontWeight = 'normal';
-                    
                     const parentX = label.getAttribute('x') || 0;
-
+                    
                     label.querySelectorAll('tspan').forEach(t => { 
-                        t.setAttribute('fill', targetColor); 
-                        t.style.fill = targetColor; 
-                        t.style.fontWeight = 'normal';
+                        let tText = t.textContent || "";
+                        
+                        // Colorize green checkmark (✔) or red circled slash (⊘)
+                        if (tText.includes('✔')) {
+                            t.setAttribute('fill', '#00E396'); 
+                            t.style.fill = '#00E396';
+                            t.style.fontWeight = 'bold';
+                        } else if (tText.includes('⊘')) {
+                            t.setAttribute('fill', '#FF4560'); 
+                            t.style.fill = '#FF4560';
+                            t.style.fontWeight = 'bold';
+                        } else {
+                            t.setAttribute('fill', targetColor); 
+                            t.style.fill = targetColor;
+                            t.style.fontWeight = 'normal';
+                        }
                         
                         t.setAttribute('text-anchor', 'end'); 
                         t.style.textAnchor = 'end';
@@ -508,18 +725,12 @@
         function getTzOffsetMs(timestamp, timeZone) {
             try {
                 const date = new Date(timestamp);
-                
-                // 1. Get exact numerical parts for the selected TimeZone
                 const formatter = new Intl.DateTimeFormat('en-US', {
-                    timeZone: timeZone,
-                    year: 'numeric', month: 'numeric', day: 'numeric',
-                    hour: 'numeric', minute: 'numeric', second: 'numeric',
-                    hourCycle: 'h23'
+                    timeZone: timeZone, year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23'
                 });
-                
                 const parts = formatter.formatToParts(date);
                 let y, m, d, h, min, s;
-                
                 for (let part of parts) {
                     if (part.type === 'year') y = parseInt(part.value, 10);
                     if (part.type === 'month') m = parseInt(part.value, 10);
@@ -528,19 +739,15 @@
                     if (part.type === 'minute') min = parseInt(part.value, 10);
                     if (part.type === 'second') s = parseInt(part.value, 10);
                 }
-                if (h === 24) h = 0; // Handle midnight edge case
+                if (h === 24) h = 0; 
                 const tzFakeUtc = Date.UTC(y, m - 1, d, h, min, s);
                 
-                // 2. Get exact numerical parts for UTC
                 const utcFormatter = new Intl.DateTimeFormat('en-US', {
-                    timeZone: 'UTC',
-                    year: 'numeric', month: 'numeric', day: 'numeric',
-                    hour: 'numeric', minute: 'numeric', second: 'numeric',
-                    hourCycle: 'h23'
+                    timeZone: 'UTC', year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23'
                 });
                 const uParts = utcFormatter.formatToParts(date);
                 let uy, um, ud, uh, umin, us;
-                
                 for (let part of uParts) {
                     if (part.type === 'year') uy = parseInt(part.value, 10);
                     if (part.type === 'month') um = parseInt(part.value, 10);
@@ -552,26 +759,111 @@
                 if (uh === 24) uh = 0;
                 const realUtc = Date.UTC(uy, um - 1, ud, uh, umin, us);
 
-                // 3. Return the exact millisecond difference safely
                 return tzFakeUtc - realUtc;
             } catch(e) { 
                 console.error("Timezone conversion error:", e);
                 return 0; 
             }
         }
+        
+        async function ensureCompletionData() {
+            if (isCompletionDataLoaded) return;
+            
+            let allCards = [];
+            let offset = 0;
+            let fetchMore = true;
+
+            while (fetchMore) {
+                const params = new URLSearchParams({ 
+                    where: "1=1", 
+                    outFields: "*", 
+                    returnGeometry: "false", 
+                    resultOffset: offset,
+                    f: "json", 
+                    token: flightCardApiKey 
+                });
+
+                try {
+                    const response = await fetch(`${flightCardServiceUrl}?${params.toString()}`);
+                    const data = await response.json();
+                    
+                    if (data.features && data.features.length > 0) {
+                        allCards = allCards.concat(data.features);
+                        offset += data.features.length; 
+                    }
+                    if (!data.exceededTransferLimit) {
+                        fetchMore = false;
+                    }
+                } catch (error) { 
+                    console.error("Fetch completion data failed:", error); 
+                    fetchMore = false; 
+                }
+            }
+            
+            completionDataCache = {};
+            const isMissingVal = (val) => (val === null || val === undefined || String(val).trim() === '' || String(val).trim().toLowerCase() === 'nan');
+            
+            const getVal = (attrs, possibleKeys) => {
+                const keys = Object.keys(attrs);
+                for (let pk of possibleKeys) {
+                    const matched = keys.find(k => k.toLowerCase() === pk.toLowerCase());
+                    if (matched) return attrs[matched];
+                }
+                return undefined;
+            };
+
+            allCards.forEach(f => {
+                const attrs = f.attributes;
+                const proj = getVal(attrs, ['Project_ID', 'project_id', 'Project', 'project']);
+                
+                let line = getVal(attrs, ['flightline', 'line_name', 'flight_line']);
+                if (!line) {
+                    const oid = getVal(attrs, ['ObjectId', 'OBJECTID']);
+                    if (oid) line = `Line ${oid}`;
+                    else line = "Unknown";
+                }
+                
+                if (proj && line) {
+                    const cacheKey = `${normalizeStr(proj)}|||${normalizeStr(line)}`;
+                    completionDataCache[cacheKey] = {
+                        'MHW': !isMissingVal(getVal(attrs, ['NIR_MHW'])),
+                        'MLLW': !isMissingVal(getVal(attrs, ['NIR_MLLW'])),
+                        'BMHW': !isMissingVal(getVal(attrs, ['NIR_BMHW'])),
+                        'NT': !isMissingVal(getVal(attrs, ['NIR']))
+                    };
+                }
+            });
+
+            isCompletionDataLoaded = true;
+        }
+
+        let cachedFeatures = [];
 
         async function fetchWaterLevels() {
             sanitizeArcGISParams(); 
+            
             const currentUrl = window.location.search;
+            const urlParams = new URLSearchParams(currentUrl);
+            const tzSetting = urlParams.get('tz') || 'local';
+            const sd = urlParams.get('start_date');
+            const ed = urlParams.get('end_date');
+            const projectParam = urlParams.get('project');
+
+            // SHORT-CIRCUIT: Do not fetch or render anything if no project is selected
+            if (!projectParam || projectParam === "null" || projectParam.trim() === "") {
+                cachedFeatures = [];
+                processAndDraw([], tzSetting, sd, ed);
+                return; 
+            }
+
             if (currentUrl === lastUrl && mainChart) return;
             lastUrl = currentUrl;
-
-            const urlParams = new URLSearchParams(currentUrl);
-            let sqlWhere = "1=1";
             
+            let sqlWhere = "1=1";
             const filters = ['project', 'datum', 'line_name', 'line', 'source'];
+            
             filters.forEach(key => {
-                const val = urlParams.get(key);
+                let val = urlParams.get(key);
                 if (val && val !== "" && val !== "null") {
                     if (key === 'project') {
                         const arr = val.split(',').map(p => `'${p}'`).join(',');
@@ -579,15 +871,14 @@
                     } else if (key === 'line') {
                         const arr = val.split(',').map(l => `'${l}'`).join(',');
                         sqlWhere += ` AND line_name IN (${arr})`;
+                    } else if (key === 'source' || key === 'datum') {
+                        sqlWhere += ` AND UPPER(${key}) = '${val.toUpperCase()}'`;
                     } else {
                         sqlWhere += ` AND ${key} = '${val}'`;
                     }
                 }
             });
 
-            // Expand the fetched data by 1 day on each side to prevent timezone clip drops
-            const sd = urlParams.get('start_date');
-            const ed = urlParams.get('end_date');
             if (sd && ed) {
                 const startParts = sd.split('-');
                 const endParts = ed.split('-');
@@ -598,32 +889,31 @@
                 endDateObj.setDate(endDateObj.getDate() + 1);
 
                 const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-
                 const expandedSd = formatDate(startDateObj);
                 const expandedEd = formatDate(endDateObj);
 
                 sqlWhere += ` AND date_ >= '${expandedSd}' AND date_ <= '${expandedEd}'`;
             }
 
+            // We include glint_series and filename in case LT adds them, but rely gracefully on standard fields otherwise
             const params = new URLSearchParams({ 
                 where: sqlWhere, 
-                outFields: "project,line_name,start,end_,datum,source,date_", 
+                outFields: "project,line_name,start,end_,datum,source,date_,glint_series,filename", 
                 orderByFields: "project ASC, line_name ASC, start ASC", 
-                returnGeometry: "false", 
+                returnGeometry: "true", 
+                outSR: "4326",
                 f: "json", 
-                token: apiKey 
+                token: waterLevelApiKey 
             });
 
             try {
-                updateTimezoneLabels(sd);
-                
+                updateTimezoneLabels(sd); 
                 let allFeatures = [];
                 let fetchMore = true;
                 let offset = 0;
 
                 while (fetchMore) {
                     params.set('resultOffset', offset);
-                    
                     const response = await fetch(`${featureServiceUrl}?${params.toString()}`);
                     const data = await response.json();
                     
@@ -632,29 +922,267 @@
                         offset += data.features.length; 
                     }
                     
-                    if (data.exceededTransferLimit) {
-                        fetchMore = true;
-                    } else {
-                        fetchMore = false;
-                    }
+                    fetchMore = !!data.exceededTransferLimit;
                 }
-                
-                const tzSetting = urlParams.get('tz') || 'local';
-                
-                if (allFeatures.length > 0 || mainChart) {
-                    processAndDraw(allFeatures, tzSetting, sd, ed);
-                }
+                cachedFeatures = allFeatures;
             } catch (error) { 
                 console.error("Fetch failed:", error); 
             }
+            
+            // Sync cache
+            await ensureCompletionData();
+
+            let lastRunText = "N/A";
+            if (cachedFeatures.length > 0) {
+                let maxTime = 0;
+                cachedFeatures.forEach(f => {
+                    if (f.attributes.filename) {
+                        const match = f.attributes.filename.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+                        if (match) {
+                            const ts = Date.UTC(parseInt(match[1]), parseInt(match[2])-1, parseInt(match[3]), parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
+                            if (ts > maxTime) maxTime = ts;
+                        }
+                    }
+                });
+                
+                if (maxTime > 0) {
+                    const useApexUTC = (tzSetting !== 'local');
+                    let adjTime = maxTime;
+                    if (tzSetting !== 'local' && tzSetting !== 'utc') adjTime += getTzOffsetMs(adjTime, tzSetting);
+                    
+                    const d = new Date(adjTime);
+                    const yyyy = useApexUTC ? d.getUTCFullYear() : d.getFullYear();
+                    const mm = String((useApexUTC ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2, '0');
+                    const dd = String(useApexUTC ? d.getUTCDate() : d.getDate()).padStart(2, '0');
+                    const hh = String(useApexUTC ? d.getUTCHours() : d.getHours()).padStart(2, '0');
+                    const mins = String(useApexUTC ? d.getUTCMinutes() : d.getMinutes()).padStart(2, '0');
+                    
+                    const tzSelect = document.getElementById('filter-tz');
+                    const tzName = tzSelect.options[tzSelect.selectedIndex].text.split(' (')[0];
+                    lastRunText = `${yyyy}-${mm}-${dd} ${hh}:${mins} ${tzName}`;
+                }
+            }
+            
+            const lastRunEl = document.getElementById('last-run-time');
+            if (lastRunEl) lastRunEl.innerText = `Last Run: ${lastRunText}`;
+            
+            if (cachedFeatures.length > 0 || mainChart) {
+                processAndDraw(cachedFeatures, tzSetting, sd, ed);
+            }
+        }
+
+        // --- TABLE GENERATION LOGIC ---
+        function renderTable() {
+            const tableContainer = document.getElementById('table_container');
+            
+            if (!cachedFeatures || cachedFeatures.length === 0) {
+                tableContainer.innerHTML = '<div style="text-align:center; color:#888; margin-top:20px; font-size:16px;">Please select a Project from the dropdown to load flightlines.</div>';
+                return;
+            }
+
+            const tzSetting = document.getElementById('filter-tz').value || 'local';
+            const useApexUTC = (tzSetting !== 'local');
+            const completionFilter = new URLSearchParams(window.location.search).get('completion');
+            
+            const featuresToProcess = cachedFeatures.filter(f => {
+                if (!completionFilter) return true;
+                const proj = f.attributes.project;
+                const line = f.attributes.line_name;
+                const datum = (f.attributes.datum || '').trim().toUpperCase();
+                const cacheKey = `${normalizeStr(proj)}|||${normalizeStr(line)}`;
+                
+                const lineData = completionDataCache[cacheKey];
+                if (!lineData) return false; 
+                
+                let cacheStatus = false;
+                if (datum === 'MHW') cacheStatus = lineData['MHW'];
+                else if (datum === 'MLLW') cacheStatus = lineData['MLLW'];
+                else if (datum === 'BMHW') cacheStatus = lineData['BMHW'];
+                else cacheStatus = lineData['NT']; 
+                
+                if (completionFilter === 'completed') return cacheStatus === true;
+                if (completionFilter === 'incomplete') return cacheStatus === false;
+                return true;
+            });
+            
+            const getAdjustedDate = (ts) => {
+                let t = ts;
+                if (tzSetting !== 'local' && tzSetting !== 'utc') t += getTzOffsetMs(t, tzSetting);
+                const d = new Date(t);
+                const yyyy = useApexUTC ? d.getUTCFullYear() : d.getFullYear();
+                const mm = String((useApexUTC ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2, '0');
+                const dd = String(useApexUTC ? d.getUTCDate() : d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
+
+            const formatTime = (ts) => {
+                let t = ts;
+                if (tzSetting !== 'local' && tzSetting !== 'utc') t += getTzOffsetMs(t, tzSetting);
+                const d = new Date(t);
+                const h = useApexUTC ? d.getUTCHours() : d.getHours();
+                const m = useApexUTC ? d.getUTCMinutes() : d.getMinutes();
+                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            };
+
+            const groupedData = {};
+            const availableDatums = new Set();
+            const projectsByDate = {}; 
+            
+            featuresToProcess.forEach(f => {
+                const attr = f.attributes;
+                const lineName = attr.line_name || 'Unknown Line';
+                const datum = (attr.datum || 'N/A').toUpperCase();
+                const source = (attr.source || 'UNKNOWN').toUpperCase();
+                const proj = attr.project || 'Unknown Project';
+                
+                const dateKey = attr.start ? getAdjustedDate(attr.start) : (attr.date_ || 'Unknown Date');
+                
+                availableDatums.add(datum);
+                if (!projectsByDate[dateKey]) projectsByDate[dateKey] = new Set();
+                projectsByDate[dateKey].add(proj);
+                
+                if (!groupedData[dateKey]) groupedData[dateKey] = {};
+                const rowKey = `${proj}|||${lineName}|||${source}`;
+                if (!groupedData[dateKey][rowKey]) groupedData[dateKey][rowKey] = {};
+                if (!groupedData[dateKey][rowKey][datum]) groupedData[dateKey][rowKey][datum] = [];
+                
+                const startStr = formatTime(attr.start);
+                const endStr = formatTime(attr.end_);
+                groupedData[dateKey][rowKey][datum].push(`${startStr}-${endStr}`);
+            });
+            
+            const sortedDatums = Array.from(availableDatums).sort((a, b) => {
+                if(a === 'MLLW') return -1;
+                if(b === 'MLLW') return 1;
+                return a.localeCompare(b);
+            });
+            
+            const sortedDates = Object.keys(groupedData).sort();
+            
+            if (sortedDates.length === 0) {
+                tableContainer.innerHTML = '<div style="text-align:center; color:#888; margin-top:20px; font-size:16px;">No flight lines match the current filters.</div>';
+                return;
+            }
+
+            let tableHtml = `<table class="water-level-table">`;
+            tableHtml += `<thead><tr><th style="text-align: center;">Flight Line</th><th style="text-align: center;">Source</th>`;
+            sortedDatums.forEach(d => { tableHtml += `<th style="text-align: left;">${d}</th>`; });
+            tableHtml += `</tr></thead><tbody>`;
+
+            sortedDates.forEach(date => {
+                const uniqueProjs = Array.from(projectsByDate[date]).join(', ');
+                tableHtml += `<tr class="date-header"><td colspan="${sortedDatums.length + 2}">${date} <span style="color: #FFAB00; margin-left: 10px; font-size: 0.95em; font-weight: 600;">${uniqueProjs}</span></td></tr>`;
+                
+                const sortedRowKeys = Object.keys(groupedData[date]).sort();
+                sortedRowKeys.forEach(rowKey => {
+                    const [proj, line, src] = rowKey.split('|||');
+                    
+                    let srcColor = '#ffffff';
+                    if (src === 'PYDRO') srcColor = '#eb97d8';
+                    else if (src === 'STOFS') srcColor = '#80ecf0';
+
+                    tableHtml += `<tr><td style="text-align: center;">${line}</td><td style="text-align: center; color:${srcColor}; font-weight:600;">${src}</td>`;
+                    
+                    sortedDatums.forEach(datum => {
+                        const timesArray = groupedData[date][rowKey][datum];
+                        
+                        const cacheKey = `${normalizeStr(proj)}|||${normalizeStr(line)}`;
+                        const lineData = completionDataCache[cacheKey];
+                        
+                        let statusIcon = `<span style="color:#888; font-size:11px; margin-left:6px;" title="No Data / Not Found">[?]</span>`;
+                        if (lineData) {
+                            let isComplete = false;
+                            const dUpper = datum.toUpperCase().trim();
+                            if (dUpper === 'MHW') isComplete = lineData['MHW'];
+                            else if (dUpper === 'MLLW') isComplete = lineData['MLLW'];
+                            else if (dUpper === 'BMHW') isComplete = lineData['BMHW'];
+                            else isComplete = lineData['NT'];
+                            
+                            if (isComplete) statusIcon = `<span style="color:#00E396; font-weight:bold; font-size:13px; margin-left:6px;" title="Complete">✔</span>`;
+                            else statusIcon = `<span style="color:#FF4560; font-weight:bold; font-size:13px; margin-left:6px;" title="Incomplete">⊘</span>`;
+                        }
+
+                        if (timesArray && timesArray.length > 0) {
+                            tableHtml += `<td>${timesArray.join(' &nbsp; ')} ${statusIcon}</td>`;
+                        } else {
+                            tableHtml += `<td></td>`;
+                        }
+                    });
+                    
+                    tableHtml += `</tr>`;
+                });
+            });
+
+            tableHtml += `</tbody></table>`;
+            tableContainer.innerHTML = tableHtml;
+        }
+
+        function getSunGlintWindows(startStr, endStr, lat, lon, thresholdDegrees) {
+            const thresholdRads = thresholdDegrees * (Math.PI / 180);
+            let windows = [];
+            const partsStart = startStr.split('-');
+            const partsEnd = endStr.split('-');
+            const sd = new Date(partsStart[0], partsStart[1] - 1, partsStart[2], 12, 0, 0);
+            const ed = new Date(partsEnd[0], partsEnd[1] - 1, partsEnd[2], 12, 0, 0);
+
+            for (let d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) {
+                let glintStart = null;
+                let glintEnd = null;
+                for (let i = 0; i < 24 * 60; i += 10) {
+                    const testTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, i, 0);
+                    const sunPos = SunCalc.getPosition(testTime, lat, lon);
+                    
+                    if (sunPos.altitude >= thresholdRads) {
+                        if (!glintStart) glintStart = testTime.getTime();
+                        glintEnd = testTime.getTime(); 
+                    }
+                }
+                if (glintStart && glintEnd) {
+                    windows.push({ start: glintStart, end: glintEnd });
+                }
+            }
+            return windows;
         }
 
         function processAndDraw(features, tzSetting, startDateParam, endDateParam) {
-            const datumColors = { 'MLLW': '#FF4F60', 'MHW': '#00B5F7', 'BMHW': '#FFAB00' };
+            const datumColors = { 'MLLW': '#00E396', 'MHW': '#008FFB', 'BMHW': '#FFAB00' };
+            const GLINT_COLORS = { MINOR: "#FEB019", MODERATE: "#FD6A6A", SEVERE: "#FF4560" };
+            
+            const completionFilter = new URLSearchParams(window.location.search).get('completion');
+            const featuresToProcess = features.filter(f => {
+                if (!completionFilter) return true;
+                const proj = f.attributes.project;
+                const line = f.attributes.line_name;
+                const datum = (f.attributes.datum || '').trim().toUpperCase();
+                const cacheKey = `${normalizeStr(proj)}|||${normalizeStr(line)}`;
+                
+                const lineData = completionDataCache[cacheKey];
+                if (!lineData) return false; 
+                
+                let cacheStatus = false;
+                if (datum === 'MHW') cacheStatus = lineData['MHW'];
+                else if (datum === 'MLLW') cacheStatus = lineData['MLLW'];
+                else if (datum === 'BMHW') cacheStatus = lineData['BMHW'];
+                else cacheStatus = lineData['NT']; 
+                
+                if (completionFilter === 'completed') return cacheStatus === true;
+                if (completionFilter === 'incomplete') return cacheStatus === false;
+                return true;
+            });
+            
             const useApexUTC = (tzSetting !== 'local');
             const tzSelect = document.getElementById('filter-tz');
             const selectedOption = tzSelect.options[tzSelect.selectedIndex];
             const fullTzName = selectedOption ? selectedOption.text : tzSetting;
+
+            let projectLat = 0;
+            let projectLon = 0;
+            
+            if (featuresToProcess.length > 0 && featuresToProcess[0].geometry) {
+                const geom = featuresToProcess[0].geometry;
+                projectLon = geom.x || (geom.paths ? geom.paths[0][0][0] : 0);
+                projectLat = geom.y || (geom.paths ? geom.paths[0][0][1] : 0);
+            }
 
             let minTime, maxTime;
             if (startDateParam && endDateParam) {
@@ -669,11 +1197,50 @@
                 }
             }
 
-            const rawChartData = features.map(f => {
+            const showGlint = document.getElementById('filter-glint-show').checked;
+            const glintAngle = parseFloat(document.getElementById('filter-glint-angle').value) || 40;
+
+            let glintAnnotations = [];
+            if (showGlint && startDateParam && endDateParam && projectLat !== 0 && projectLon !== 0) {
+                const glintWindows = getSunGlintWindows(startDateParam, endDateParam, projectLat, projectLon, glintAngle);
+                
+                glintWindows.forEach(w => {
+                    let adjStart = w.start;
+                    let adjEnd = w.end;
+                    if (tzSetting !== 'local' && tzSetting !== 'utc') {
+                        adjStart += getTzOffsetMs(adjStart, tzSetting);
+                        adjEnd += getTzOffsetMs(adjEnd, tzSetting);
+                    }
+
+                    const startD = new Date(adjStart);
+                    const endD = new Date(adjEnd);
+                    const sH = useApexUTC ? startD.getUTCHours() : startD.getHours();
+                    const sM = useApexUTC ? startD.getUTCMinutes() : startD.getMinutes();
+                    const eH = useApexUTC ? endD.getUTCHours() : endD.getHours();
+                    const eM = useApexUTC ? endD.getUTCMinutes() : endD.getMinutes();
+                    const sTime = String(sH).padStart(2, '0') + String(sM).padStart(2, '0');
+                    const eTime = String(eH).padStart(2, '0') + String(eM).padStart(2, '0');
+
+                    glintAnnotations.push({
+                        x: adjStart, x2: adjEnd, fillColor: '#FFD700', opacity: 0.15,
+                        label: {
+                            text: `>${glintAngle}° Sun | ${sTime}-${eTime}`,
+                            orientation: 'vertical', offsetX: 15, offsetY: 15,
+                            style: { color: '#000', background: 'rgba(255, 215, 0, 0.75)', fontSize: '10px', fontWeight: 600, padding: { left: 5, right: 5, top: 2, bottom: 2 } }
+                        }
+                    });
+                });
+            }
+
+            const rawChartData = [];
+            
+            featuresToProcess.forEach(f => {
                 const a = f.attributes;
                 const sName = (a.source || 'STOFS').toUpperCase();
                 const dType = (a.datum || 'N/A').toUpperCase();
                 const projName = a.project || "Unknown Project";
+                const lineIdentifier = `${projName}|||${sName}|||${dType}|||${a.line_name}`;
+                const defaultColor = datumColors[dType] || '#775DD0';
                 
                 let startT = new Date(a.start).getTime();
                 let endT = new Date(a.end_).getTime();
@@ -683,35 +1250,53 @@
                     endT += getTzOffsetMs(endT, tzSetting);
                 }
 
-                return {
-                    x: `${projName}|||${sName}|||${dType}|||${a.line_name}`, 
-                    y: [startT, endT],
-                    fillColor: datumColors[dType] || '#775DD0',
-                    project: projName, datum: dType, source: sName, originalLine: a.line_name,
-                    isHeader: false
-                };
-            }).filter(item => {
+                if (a.glint_series && a.glint_series.trim() !== "") {
+                    try {
+                        const glintArray = JSON.parse(a.glint_series);
+                        glintArray.forEach(segment => {
+                            let segStart = segment.ts;
+                            let segEnd = segment.te;
+                            if (tzSetting !== 'local' && tzSetting !== 'utc') {
+                                segStart += getTzOffsetMs(segStart, tzSetting);
+                                segEnd += getTzOffsetMs(segEnd, tzSetting);
+                            }
+                            let glintPct = segment.g || 0.0;
+                            let segmentColor = defaultColor;
+                            if (glintPct > 30.0) segmentColor = GLINT_COLORS.SEVERE;
+                            else if (glintPct > 10.0) segmentColor = GLINT_COLORS.MODERATE;
+                            else if (glintPct > 0.0) segmentColor = GLINT_COLORS.MINOR;
+                            
+                            rawChartData.push({
+                                x: lineIdentifier, y: [segStart, segEnd], fillColor: segmentColor,
+                                project: projName, datum: dType, source: sName, originalLine: a.line_name, glintPct: glintPct, isHeader: false
+                            });
+                        });
+                        return; 
+                    } catch (e) { console.warn(`Failed to parse FMS glint_series for line ${a.line_name}`, e); }
+                }
+
+                rawChartData.push({
+                    x: lineIdentifier, y: [startT, endT], fillColor: defaultColor,
+                    project: projName, datum: dType, source: sName, originalLine: a.line_name, glintPct: 0.0, isHeader: false
+                });
+            });
+
+            const filteredData = rawChartData.filter(item => {
                 if (isNaN(item.y[0]) || isNaN(item.y[1])) return false;
                 if (item.y[1] < minTime || item.y[0] > maxTime) return false;
                 return true;
             });
 
-            const chartData = [...rawChartData];
+            const chartData = [...filteredData];
             const headers = new Set();
             
-            rawChartData.forEach(d => {
+            filteredData.forEach(d => {
                 const headerKey = `${d.project}|||${d.source}|||${d.datum}|||__HEADER__`;
                 if (!headers.has(headerKey)) {
                     headers.add(headerKey);
                     chartData.push({
-                        x: headerKey,
-                        y: [minTime, minTime], 
-                        fillColor: 'transparent',
-                        project: d.project,
-                        datum: d.datum,
-                        source: d.source,
-                        originalLine: '',
-                        isHeader: true
+                        x: headerKey, y: [minTime, minTime], fillColor: 'transparent',
+                        project: d.project, datum: d.datum, source: d.source, originalLine: '', isHeader: true
                     });
                 }
             });
@@ -720,43 +1305,51 @@
                 if (a.project !== b.project) return a.project.localeCompare(b.project);
                 if (a.source !== b.source) return b.source.localeCompare(a.source); 
                 if (a.datum !== b.datum) return a.datum.localeCompare(b.datum); 
-                
                 if (a.isHeader && !b.isHeader) return -1;
                 if (!a.isHeader && b.isHeader) return 1;
-                
                 if (a.originalLine !== b.originalLine) return a.originalLine.localeCompare(b.originalLine);
-                
                 return a.y[0] - b.y[0];
             });
 
             const uniqueRows = new Set(chartData.map(d => d.x)).size;
             const baseRowHeight = 40; 
-            let calculatedHeight = (uniqueRows * baseRowHeight) + 60; 
+            let calculatedHeight = (uniqueRows * baseRowHeight) + 40; 
+            
             const wrapperHeight = document.getElementById('chart_wrapper').clientHeight;
             if (calculatedHeight < wrapperHeight) calculatedHeight = wrapperHeight;
-
             document.getElementById('chart_container').style.height = calculatedHeight + 'px';
 
             const commonYAxis = { 
                 labels: { 
-                    minWidth: 150, 
-                    maxWidth: 150,
-                    align: 'right', 
-                    offsetX: -5,
+                    minWidth: 170, maxWidth: 200, align: 'right', offsetX: -5,
                     style: { fontSize: '11px', fontWeight: 500, fontFamily: 'Segoe UI' },
                     formatter: function(val) {
                         if (val === undefined || val === null) return "";
-                        
                         if (Array.isArray(val) && !String(val[0]).includes('|||')) return val; 
-
                         let strVal = Array.isArray(val) ? val.join(" ") : String(val);
-                        
                         const parts = strVal.split('|||');
                         if (parts.length === 4) {
                             if (parts[3] === '__HEADER__') {
                                 return [parts[0], `${parts[1]} - ${parts[2]}`]; 
                             } else {
-                                return parts[3]; 
+                                const proj = parts[0];
+                                const datum = parts[2];
+                                const line = parts[3];
+                                const cacheKey = `${normalizeStr(proj)}|||${normalizeStr(line)}`;
+                                const lineData = completionDataCache[cacheKey];
+                                
+                                let statusTag = "";
+                                if (lineData) {
+                                    let isComplete = false;
+                                    const dUpper = datum.toUpperCase().trim();
+                                    if (dUpper === 'MHW') isComplete = lineData['MHW'];
+                                    else if (dUpper === 'MLLW') isComplete = lineData['MLLW'];
+                                    else if (dUpper === 'BMHW') isComplete = lineData['BMHW'];
+                                    else isComplete = lineData['NT'];
+                                    
+                                    statusTag = isComplete ? "  ✔" : "  ⊘";
+                                }
+                                return `${line}${statusTag}`; 
                             }
                         }
                         return strVal;
@@ -766,7 +1359,12 @@
 
             let nowTime = new Date().getTime();
             if (tzSetting !== 'local' && tzSetting !== 'utc') { nowTime += getTzOffsetMs(nowTime, tzSetting); }
+
             const nowAnnotationLine = { x: nowTime, strokeDashArray: 0, borderColor: '#FF4560', borderWidth: 2 };
+            const nowAnnotationLabel = {
+                ...nowAnnotationLine,
+                label: { style: { color: '#fff', background: '#FF4560', fontSize: '11px', fontWeight: 600, padding: { left: 5, right: 5 } }, text: 'NOW', offsetY: 0 }
+            };
 
             const dynamicXAxis = {
                 type: 'datetime', 
@@ -791,6 +1389,7 @@
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...dynamicXAxis, position: 'top' },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
+                annotations: { xaxis: [ nowAnnotationLabel ] },
                 grid: { show: false, padding: { left: 0, right: 30, top: 0, bottom: -20 } },
                 tooltip: { enabled: false }
             };
@@ -801,6 +1400,7 @@
                 plotOptions: { bar: { horizontal: true } }, colors: ['transparent'],
                 xaxis: { ...dynamicXAxis, position: 'bottom' },
                 yaxis: { labels: { ...commonYAxis.labels, show: true, style: { colors: ['transparent'] } } },
+                annotations: { xaxis: [ nowAnnotationLine ] },
                 grid: { show: false, padding: { left: 0, right: 30, top: -20, bottom: 0 } },
                 tooltip: { enabled: false }
             };
@@ -814,20 +1414,23 @@
 
             const mainOptions = {
                 series: [{ data: chartData }],
+                noData: {
+                    text: 'Please select a Project from the dropdown to load flightlines.',
+                    align: 'center', verticalAlign: 'middle',
+                    style: { color: '#888888', fontSize: '16px', fontFamily: 'Segoe UI' }
+                },
                 chart: { 
                     type: 'rangeBar', height: calculatedHeight, id: 'main-chart',
                     toolbar: { show: true, autoSelected: 'pan', tools: { pan: true, zoom: true, zoomin: true, zoomout: true, reset: true, download: false } },
                     events: { 
                         mounted: function() { colorizeYAxisText(); }, 
                         updated: function() { colorizeYAxisText(); },
-                        zoomed: syncAxes,
-                        scrolled: syncAxes
+                        zoomed: syncAxes, scrolled: syncAxes
                     },
                     animations: { enabled: false }
                 },
-                plotOptions: { bar: { horizontal: true, barHeight: '40%' } }, 
+                plotOptions: { bar: { horizontal: true, barHeight: '40%', borderRadius: 0 } }, 
                 
-                // --- STRICT HHMM - HHMM DATALABELS ---
                 dataLabels: {
                     enabled: true,
                     formatter: function(val, opts) {
@@ -835,74 +1438,106 @@
                         const d = w.globals.initialSeries[opts.seriesIndex].data[opts.dataPointIndex];
                         if (d.isHeader) return ''; 
 
-                        // Determine the current zoom span in days
                         const minX = w.globals.minX;
                         const maxX = w.globals.maxX;
                         const rangeDays = (maxX - minX) / 86400000;
-                        
-                        // Hide labels if zoomed out more than 5 days to prevent clutter
                         if (rangeDays > 5) return '';
 
                         const startD = new Date(d.y[0]);
                         const endD = new Date(d.y[1]);
-                        
                         const sH = useApexUTC ? startD.getUTCHours() : startD.getHours();
                         const sM = useApexUTC ? startD.getUTCMinutes() : startD.getMinutes();
-                        
                         const eH = useApexUTC ? endD.getUTCHours() : endD.getHours();
                         const eM = useApexUTC ? endD.getUTCMinutes() : endD.getMinutes();
-
                         const sTime = `${String(sH).padStart(2, '0')}${String(sM).padStart(2, '0')}`;
                         const eTime = `${String(eH).padStart(2, '0')}${String(eM).padStart(2, '0')}`;
-                        
                         return `${sTime} - ${eTime}`;
                     },
                     style: { fontSize: '11px', fontWeight: 700, colors: ['#111'] },
                     dropShadow: { enabled: false }
                 },
-                
+
                 stroke: { width: 0 },
                 xaxis: { ...dynamicXAxis, labels: { show: false }, tooltip: { enabled: false } },
                 yaxis: { labels: { ...commonYAxis.labels, style: { fontSize: '10px', fontWeight: 400 }, formatter: commonYAxis.labels.formatter } },
-                annotations: { xaxis: [ nowAnnotationLine ] },
+                annotations: { xaxis: [ nowAnnotationLine, ...glintAnnotations ] },
                 grid: { borderColor: '#444', strokeDashArray: 4, xaxis: { lines: { show: true } }, yaxis: { lines: { show: true } }, padding: { left: 0, right: 30 } },
+                
                 tooltip: { 
-                    theme: 'dark', followCursor: true, 
+                    theme: 'dark', 
+                    followCursor: true, 
                     custom: function({ series, seriesIndex, dataPointIndex, w }) {
                         const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
                         if (d.isHeader) return `<div style="display:none;"></div>`; 
-                        const startD = new Date(d.y[0]); const endD = new Date(d.y[1]);
+                        
+                        const startD = new Date(d.y[0]);
+                        const endD = new Date(d.y[1]);
                         const formatOpts = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
                         let sTime = useApexUTC ? startD.toLocaleString('en-US', { ...formatOpts, timeZone: 'UTC' }) : startD.toLocaleString('en-US', formatOpts);
                         let eTime = useApexUTC ? endD.toLocaleString('en-US', { ...formatOpts, timeZone: 'UTC' }) : endD.toLocaleString('en-US', formatOpts);
                         const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
+                        
+                        let statusText = "[?]";
+                        let statusCol = "#888";
+                        const cacheKey = `${normalizeStr(d.project)}|||${normalizeStr(d.originalLine)}`;
+                        const lineData = completionDataCache[cacheKey];
+                        
+                        if (lineData) {
+                            let datumStatus = false;
+                            const dUpper = d.datum.toUpperCase().trim();
+                            if (dUpper === 'MHW') datumStatus = lineData['MHW'];
+                            else if (dUpper === 'MLLW') datumStatus = lineData['MLLW'];
+                            else if (dUpper === 'BMHW') datumStatus = lineData['BMHW'];
+                            else datumStatus = lineData['NT'];
+                            
+                            if (datumStatus === true) {
+                                statusText = "✔ Completed";
+                                statusCol = "#00E396";
+                            } else {
+                                statusText = "⊘ Incomplete";
+                                statusCol = "#FF4560";
+                            }
+                        }
+                        
+                        let glintWarningHtml = "";
+                        if (d.glintPct > 0) {
+                            glintWarningHtml = `<span><b style="color: ${d.fillColor};">&#9888; Sun Glint: ${d.glintPct.toFixed(1)}% FOV</b></span>`;
+                        } else {
+                            glintWarningHtml = `<span><b style="color: #00E396;">&#10003; Glint Clear</b></span>`;
+                        }
+                        
                         return `<div style="padding: 10px; background: #222; border: 1px solid ${d.fillColor}; color: #fff; font-size: 12px; line-height: 1.5;">` +
                             `<span><b style="color:${sCol}">Source: ${d.source}</b></span><br>` +
                             `<span><b>Project:</b> ${d.project}</span><br>` +
-                            `<span><b>Line:</b> ${d.originalLine}</span><br>` +
+                            `<span><b>Line:</b> ${d.originalLine}</span> <span style="color: ${statusCol}; font-weight: 600;">[${statusText}]</span><br>` +
                             `<span><b>Datum:</b> ${d.datum}</span><br>` +
                             `<hr style="border-top:1px solid #444; margin:5px 0;">` +
                             `<span><b>Start:</b> ${sTime}</span><br>` +
                             `<span><b>End:</b> ${eTime}</span><br>` +
-                            `<span style="color:#aaa; font-size:10px;">${fullTzName}</span></div>`;
+                            `<span style="color:#aaa; font-size:10px;">${fullTzName}</span><br><br>` +
+                            `${glintWarningHtml}</div>`;
                     }
                 }
             };
 
-            if (topChart) topChart.destroy();
-            if (mainChart) mainChart.destroy();
-            if (bottomChart) bottomChart.destroy();
+            if (mainChart) { mainChart.destroy(); }
+            if (topChart) { topChart.destroy(); }
+            if (bottomChart) { bottomChart.destroy(); }
 
             topChart = new ApexCharts(document.querySelector("#top_axis_container"), topOptions);
             bottomChart = new ApexCharts(document.querySelector("#bottom_axis_container"), bottomOptions);
-            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions);
+            mainChart = new ApexCharts(document.querySelector("#chart_container"), mainOptions); 
             
-            topChart.render(); 
-            bottomChart.render(); 
+            topChart.render();
+            bottomChart.render();
             
             mainChart.render().then(() => {
                 setupTooltipObserver();
             });
+            
+            if (currentView === 'table') {
+                renderTable();
+            }
         }
 
         buildUI();
