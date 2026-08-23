@@ -17,6 +17,14 @@
             display: flex;
             flex-direction: column;
         }
+
+        /* Mobile Header - Hidden on Desktop */
+        #mobile-header {
+            display: none;
+        }
+        .close-menu-btn {
+            display: none;
+        }
         
         /* UI Bar - Compact */
         #ui_controls {
@@ -28,7 +36,7 @@
             background-color: #222;
             border-bottom: 1px solid #444;
             align-items: center;
-            z-index: 20;
+            z-index: 2000;
         }
         
         #ui_controls select, #ui_controls input[type="date"], #ui_controls input[type="number"], #ui_controls button {
@@ -113,11 +121,11 @@
         table.water-level-table {
             width: 100%; max-width: 1200px; margin: 0 auto;
             border-collapse: collapse; color: #fff; font-size: 13px;
-            table-layout: fixed; /* Forces all columns to be exactly the same width */
+            table-layout: fixed;
         }
         table.water-level-table th, table.water-level-table td {
             border: 1px solid #444; padding: 8px 12px;
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; /* Keeps content tidy if it's too long */
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         table.water-level-table td {
             text-align: left;
@@ -147,29 +155,65 @@
 
         /* --- MOBILE RESPONSIVENESS --- */
         @media (max-width: 768px) {
-            #ui_controls {
-                max-height: 45vh; 
-                overflow-y: auto;
-                align-items: stretch;
-                padding: 10px;
-                gap: 8px;
+            #mobile-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 10px 15px;
+                background-color: #222;
+                border-bottom: 1px solid #444;
+                flex: 0 0 auto;
+                z-index: 15;
             }
-            .custom-select-wrapper, #filter-source, #filter-datum, #filter-completion, #filter-tz, #ui_controls > button {
+            #mobile-header button {
+                background-color: #008FFB; color: #fff; border: none; padding: 8px 14px;
+                border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 14px;
+            }
+            
+            #ui_controls {
+                display: none; /* Hidden by default on mobile */
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background-color: #1a1a1a;
+                z-index: 3000;
+                flex-direction: column;
+                align-items: stretch;
+                padding: 20px;
+                gap: 15px;
+                overflow-y: auto;
+            }
+            
+            #ui_controls.menu-open {
+                display: flex !important;
+            }
+            
+            .close-menu-btn {
+                display: block !important;
+                background-color: #00E396 !important;
+                color: #111 !important;
+                font-size: 16px !important;
+                padding: 12px !important;
+                height: auto !important;
+                margin-bottom: 10px;
+                border-radius: 6px !important;
+            }
+
+            .custom-select-wrapper, #filter-source, #filter-datum, #filter-completion, #filter-tz, #ui_controls > button:not(.close-menu-btn) {
                 width: 100%; 
-                flex: 1 1 100%;
+                flex: 1 1 auto;
             }
             #ui_controls select, #ui_controls input[type="date"], #ui_controls input[type="number"], #ui_controls button, .custom-select-box {
-                height: 42px; font-size: 14px;
+                height: 44px; font-size: 15px;
             }
             .rocker-group {
-                width: 100%; flex: 1 1 100%;
+                width: 100%; flex: 1 1 auto;
                 border-left: none !important; padding-left: 0 !important;
             }
-            .rocker-group button { height: 42px; flex: 0 0 50px; font-size: 14px; }
+            .rocker-group button { height: 44px; flex: 0 0 60px; font-size: 15px; }
             .rocker-group .custom-select-wrapper, .rocker-group input[type="date"] { flex: 1 1 auto; width: auto; }
-            #filter-glint-angle { width: 65px !important; flex: 0 0 65px !important; }
-            .checkbox-label { font-size: 14px; flex: 1; }
-            #last-run-time { width: 100%; text-align: center; margin-left: 0; padding-left: 0; margin-top: 5px; }
+            #filter-glint-angle { width: 70px !important; flex: 0 0 70px !important; }
+            .checkbox-label { font-size: 15px; flex: 1; }
+            #last-run-time { width: 100%; text-align: center; margin-left: 0; padding-left: 0; margin-top: 10px; font-size: 14px; }
             #table_wrapper { padding: 10px; }
             table.water-level-table th, table.water-level-table td { padding: 8px 6px; font-size: 12px; }
         }
@@ -177,7 +221,15 @@
 </head>
 <body>
     
+    <!-- Mobile Header -->
+    <div id="mobile-header">
+        <span style="color: #fff; font-weight: bold; font-size: 15px;">Water Level Gantt</span>
+        <button onclick="toggleMobileMenu()">&#9776; Menu</button>
+    </div>
+
     <div id="ui_controls">
+        <button class="close-menu-btn" onclick="toggleMobileMenu()">&#10004; Apply & Close Menu</button>
+
         <div class="custom-select-wrapper" id="project-dropdown-wrapper">
             <div class="custom-select-box" onclick="toggleDropdown('filter-project-options')">
                 <span id="project-select-text">Loading...</span> <span style="font-size: 10px;">▼</span>
@@ -265,6 +317,10 @@
         
         const normalizeStr = (val) => String(val || "").trim().toUpperCase();
 
+        function toggleMobileMenu() {
+            document.getElementById('ui_controls').classList.toggle('menu-open');
+        }
+
         let tooltipObserver = null;
         function enforceTooltipBounds() {
             const chartWrapper = document.getElementById('chart_wrapper');
@@ -328,6 +384,11 @@
                 btnTable.classList.add('active-view');
                 btnChart.classList.remove('active-view');
                 renderTable();
+            }
+
+            // Auto-close menu on mobile when a view is switched
+            if (window.innerWidth <= 768) {
+                document.getElementById('ui_controls').classList.remove('menu-open');
             }
         }
 
@@ -1495,7 +1556,7 @@
                         if (d.fullStart === d.y[0] && d.fullEnd === d.y[1]) {
                             timeHtml = `<span><b>Time (${fullTzName}):</b> ${sTime} - ${eTime}</span><br>`;
                         } else {
-                            timeHtml = `<span style="color: #00E5FF;"><b>Full Window (${fullTzName}):</b> ${fsTime} - ${feTime}</span><br>` +
+                            timeHtml = `<span style="color: #00E5FF;"><b>Full Window (${fullTzName}): ${fsTime} - ${feTime}</b></span><br>` +
                                        `<span style="color: ${d.fillColor};"><b>Glint Series Window:</b> ${sTime} - ${eTime}</span><br>`;
                         }
                         
