@@ -113,18 +113,27 @@
         table.water-level-table {
             width: 100%; max-width: 1200px; margin: 0 auto;
             border-collapse: collapse; color: #fff; font-size: 13px;
+            table-layout: fixed;
         }
         table.water-level-table th, table.water-level-table td {
             border: 1px solid #444; padding: 8px 12px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         table.water-level-table td {
             text-align: left;
         }
         table.water-level-table th {
-            background-color: #333; position: sticky; top: 0; z-index: 5; font-weight: 600; text-align: left;
+            background-color: #333; position: sticky; z-index: 5; font-weight: 600; text-align: left;
         }
-        table.water-level-table tr.date-header td {
-            background-color: #2a2a2a; font-weight: bold; color: #00E396; padding-top: 12px; text-align: left;
+        table.water-level-table tr.super-header th {
+            top: -1px; z-index: 6; 
+            background-color: #2a2a2a; 
+            padding: 12px 15px;
+            border-bottom: 1px solid #555;
+        }
+        table.water-level-table tr.col-header th {
+            top: 42px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         table.water-level-table tr:hover { background-color: #222; }
         
@@ -1024,9 +1033,12 @@
                 return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
             };
 
-            const groupedData = {};
+            const groupedByProject = {};
             const availableDatums = new Set();
-            const projectsByDate = {}; 
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const startDateParam = urlParams.get('start_date');
+            const endDateParam = urlParams.get('end_date');
             
             featuresToProcess.forEach(f => {
                 const attr = f.attributes;
@@ -1037,18 +1049,21 @@
                 
                 const dateKey = attr.start ? getAdjustedDate(attr.start) : (attr.date_ || 'Unknown Date');
                 
-                availableDatums.add(datum);
-                if (!projectsByDate[dateKey]) projectsByDate[dateKey] = new Set();
-                projectsByDate[dateKey].add(proj);
+                if (startDateParam && dateKey !== 'Unknown Date' && dateKey < startDateParam) return;
+                if (endDateParam && dateKey !== 'Unknown Date' && dateKey > endDateParam) return;
                 
-                if (!groupedData[dateKey]) groupedData[dateKey] = {};
-                const rowKey = `${proj}|||${lineName}|||${source}`;
-                if (!groupedData[dateKey][rowKey]) groupedData[dateKey][rowKey] = {};
-                if (!groupedData[dateKey][rowKey][datum]) groupedData[dateKey][rowKey][datum] = [];
+                availableDatums.add(datum);
+                
+                if (!groupedByProject[proj]) groupedByProject[proj] = {};
+                if (!groupedByProject[proj][dateKey]) groupedByProject[proj][dateKey] = {};
+                
+                const rowKey = `${lineName}|||${source}`;
+                if (!groupedByProject[proj][dateKey][rowKey]) groupedByProject[proj][dateKey][rowKey] = {};
+                if (!groupedByProject[proj][dateKey][rowKey][datum]) groupedByProject[proj][dateKey][rowKey][datum] = [];
                 
                 const startStr = formatTime(attr.start);
                 const endStr = formatTime(attr.end_);
-                groupedData[dateKey][rowKey][datum].push(`${startStr}-${endStr}`);
+                groupedByProject[proj][dateKey][rowKey][datum].push(`${startStr}-${endStr}`);
             });
             
             const sortedDatums = Array.from(availableDatums).sort((a, b) => {
@@ -1057,64 +1072,76 @@
                 return a.localeCompare(b);
             });
             
-            const sortedDates = Object.keys(groupedData).sort();
+            const sortedProjects = Object.keys(groupedByProject).sort();
             
-            if (sortedDates.length === 0) {
+            if (sortedProjects.length === 0) {
                 tableContainer.innerHTML = '<div style="text-align:center; color:#888; margin-top:20px; font-size:16px;">No flight lines match the current filters.</div>';
                 return;
             }
 
-            let tableHtml = `<table class="water-level-table">`;
-            tableHtml += `<thead><tr><th style="text-align: center;">Flight Line</th><th style="text-align: center;">Source</th>`;
-            sortedDatums.forEach(d => { tableHtml += `<th style="text-align: left;">${d}</th>`; });
-            tableHtml += `</tr></thead><tbody>`;
+            let allTablesHtml = '';
 
-            sortedDates.forEach(date => {
-                const uniqueProjs = Array.from(projectsByDate[date]).join(', ');
-                tableHtml += `<tr class="date-header"><td colspan="${sortedDatums.length + 2}">${date} <span style="color: #FFAB00; margin-left: 10px; font-size: 0.95em; font-weight: 600;">${uniqueProjs}</span></td></tr>`;
+            sortedProjects.forEach(proj => {
+                const sortedDates = Object.keys(groupedByProject[proj]).sort();
                 
-                const sortedRowKeys = Object.keys(groupedData[date]).sort();
-                sortedRowKeys.forEach(rowKey => {
-                    const [proj, line, src] = rowKey.split('|||');
+                sortedDates.forEach(date => {
+                    let tableHtml = `<div style="margin-bottom: 30px;">`;
+                    tableHtml += `<table class="water-level-table">`;
+                    tableHtml += `<thead>`;
                     
-                    let srcColor = '#ffffff';
-                    if (src === 'PYDRO') srcColor = '#eb97d8';
-                    else if (src === 'STOFS') srcColor = '#80ecf0';
+                    tableHtml += `<tr class="super-header"><th colspan="${sortedDatums.length + 2}">`;
+                    tableHtml += `<span style="color: #00E396; font-size: 15px;">${date}</span> <span style="color: #FFAB00; margin-left: 20px; font-size: 15px;">${proj}</span>`;
+                    tableHtml += `</th></tr>`;
 
-                    tableHtml += `<tr><td style="text-align: center;">${line}</td><td style="text-align: center; color:${srcColor}; font-weight:600;">${src}</td>`;
+                    tableHtml += `<tr class="col-header"><th style="text-align: center;">Flight Line</th><th style="text-align: center;">Source</th>`;
+                    sortedDatums.forEach(d => { tableHtml += `<th style="text-align: left;">${d}</th>`; });
+                    tableHtml += `</tr></thead><tbody>`;
                     
-                    sortedDatums.forEach(datum => {
-                        const timesArray = groupedData[date][rowKey][datum];
+                    const sortedRowKeys = Object.keys(groupedByProject[proj][date]).sort();
+                    sortedRowKeys.forEach(rowKey => {
+                        const [line, src] = rowKey.split('|||');
                         
-                        const cacheKey = `${normalizeStr(proj)}|||${normalizeStr(line)}`;
-                        const lineData = completionDataCache[cacheKey];
+                        let srcColor = '#ffffff';
+                        if (src === 'PYDRO') srcColor = '#eb97d8';
+                        else if (src === 'STOFS') srcColor = '#80ecf0';
+
+                        tableHtml += `<tr><td style="text-align: center;">${line}</td><td style="text-align: center; color:${srcColor}; font-weight:600;">${src}</td>`;
                         
-                        let statusIcon = `<span style="color:#888; font-size:11px; margin-left:6px;" title="No Data / Not Found">[?]</span>`;
-                        if (lineData) {
-                            let isComplete = false;
-                            const dUpper = datum.toUpperCase().trim();
-                            if (dUpper === 'MHW') isComplete = lineData['MHW'];
-                            else if (dUpper === 'MLLW') isComplete = lineData['MLLW'];
-                            else if (dUpper === 'BMHW') isComplete = lineData['BMHW'];
-                            else isComplete = lineData['NT'];
+                        sortedDatums.forEach(datum => {
+                            const timesArray = groupedByProject[proj][date][rowKey][datum];
                             
-                            if (isComplete) statusIcon = `<span style="color:#00E396; font-weight:bold; font-size:13px; margin-left:6px;" title="Complete">✔</span>`;
-                            else statusIcon = `<span style="color:#FF4560; font-weight:bold; font-size:13px; margin-left:6px;" title="Incomplete">⊘</span>`;
-                        }
+                            const cacheKey = `${normalizeStr(proj)}|||${normalizeStr(line)}`;
+                            const lineData = completionDataCache[cacheKey];
+                            
+                            let statusIcon = `<span style="color:#888; font-size:11px; margin-left:6px;" title="No Data / Not Found">[?]</span>`;
+                            if (lineData) {
+                                let isComplete = false;
+                                const dUpper = datum.toUpperCase().trim();
+                                if (dUpper === 'MHW') isComplete = lineData['MHW'];
+                                else if (dUpper === 'MLLW') isComplete = lineData['MLLW'];
+                                else if (dUpper === 'BMHW') isComplete = lineData['BMHW'];
+                                else isComplete = lineData['NT'];
+                                
+                                if (isComplete) statusIcon = `<span style="color:#00E396; font-weight:bold; font-size:13px; margin-left:6px;" title="Complete">✔</span>`;
+                                else statusIcon = `<span style="color:#FF4560; font-weight:bold; font-size:13px; margin-left:6px;" title="Incomplete">⊘</span>`;
+                            }
 
-                        if (timesArray && timesArray.length > 0) {
-                            tableHtml += `<td>${timesArray.join(' &nbsp; ')} ${statusIcon}</td>`;
-                        } else {
-                            tableHtml += `<td></td>`;
-                        }
+                            if (timesArray && timesArray.length > 0) {
+                                tableHtml += `<td>${timesArray.join(' &nbsp; ')} ${statusIcon}</td>`;
+                            } else {
+                                tableHtml += `<td></td>`;
+                            }
+                        });
+                        
+                        tableHtml += `</tr>`;
                     });
                     
-                    tableHtml += `</tr>`;
+                    tableHtml += `</tbody></table></div>`;
+                    allTablesHtml += tableHtml;
                 });
             });
 
-            tableHtml += `</tbody></table>`;
-            tableContainer.innerHTML = tableHtml;
+            tableContainer.innerHTML = allTablesHtml;
         }
 
         function getSunGlintWindows(startStr, endStr, lat, lon, thresholdDegrees) {
@@ -1268,7 +1295,8 @@
                             
                             rawChartData.push({
                                 x: lineIdentifier, y: [segStart, segEnd], fillColor: segmentColor,
-                                project: projName, datum: dType, source: sName, originalLine: a.line_name, glintPct: glintPct, isHeader: false
+                                project: projName, datum: dType, source: sName, originalLine: a.line_name, glintPct: glintPct, isHeader: false,
+                                fullStart: startT, fullEnd: endT
                             });
                         });
                         return; 
@@ -1277,7 +1305,8 @@
 
                 rawChartData.push({
                     x: lineIdentifier, y: [startT, endT], fillColor: defaultColor,
-                    project: projName, datum: dType, source: sName, originalLine: a.line_name, glintPct: 0.0, isHeader: false
+                    project: projName, datum: dType, source: sName, originalLine: a.line_name, glintPct: 0.0, isHeader: false,
+                    fullStart: startT, fullEnd: endT
                 });
             });
 
@@ -1296,7 +1325,8 @@
                     headers.add(headerKey);
                     chartData.push({
                         x: headerKey, y: [minTime, minTime], fillColor: 'transparent',
-                        project: d.project, datum: d.datum, source: d.source, originalLine: '', isHeader: true
+                        project: d.project, datum: d.datum, source: d.source, originalLine: '', isHeader: true,
+                        fullStart: minTime, fullEnd: minTime
                     });
                 }
             });
@@ -1321,7 +1351,7 @@
 
             const commonYAxis = { 
                 labels: { 
-                    minWidth: 170, maxWidth: 200, align: 'right', offsetX: -5,
+                    minWidth: 100, maxWidth: 100, align: 'right', offsetX: -5,
                     style: { fontSize: '11px', fontWeight: 500, fontFamily: 'Segoe UI' },
                     formatter: function(val) {
                         if (val === undefined || val === null) return "";
@@ -1476,6 +1506,20 @@
                         let sTime = useApexUTC ? startD.toLocaleString('en-US', { ...formatOpts, timeZone: 'UTC' }) : startD.toLocaleString('en-US', formatOpts);
                         let eTime = useApexUTC ? endD.toLocaleString('en-US', { ...formatOpts, timeZone: 'UTC' }) : endD.toLocaleString('en-US', formatOpts);
                         const sCol = d.source === 'PYDRO' ? '#eb97d8' : '#80ecf0';
+
+                        // Calculate full window vs glint window
+                        const fStartD = new Date(d.fullStart || d.y[0]);
+                        const fEndD = new Date(d.fullEnd || d.y[1]);
+                        let fsTime = useApexUTC ? fStartD.toLocaleString('en-US', { ...formatOpts, timeZone: 'UTC' }) : fStartD.toLocaleString('en-US', formatOpts);
+                        let feTime = useApexUTC ? fEndD.toLocaleString('en-US', { ...formatOpts, timeZone: 'UTC' }) : fEndD.toLocaleString('en-US', formatOpts);
+
+                        let timeHtml = "";
+                        if (d.fullStart === d.y[0] && d.fullEnd === d.y[1]) {
+                            timeHtml = `<span><b>Time (${fullTzName}):</b> ${sTime} - ${eTime}</span>`;
+                        } else {
+                            timeHtml = `<span style="color: #00E5FF;"><b>Full Window (${fullTzName}):</b> ${fsTime} - ${feTime}</span><br>` +
+                                       `<span style="color: ${d.fillColor};"><b>Glint Series Window:</b> ${sTime} - ${eTime}</span>`;
+                        }
                         
                         let statusText = "[?]";
                         let statusCol = "#888";
@@ -1512,9 +1556,7 @@
                             `<span><b>Line:</b> ${d.originalLine}</span> <span style="color: ${statusCol}; font-weight: 600;">[${statusText}]</span><br>` +
                             `<span><b>Datum:</b> ${d.datum}</span><br>` +
                             `<hr style="border-top:1px solid #444; margin:5px 0;">` +
-                            `<span><b>Start:</b> ${sTime}</span><br>` +
-                            `<span><b>End:</b> ${eTime}</span><br>` +
-                            `<span style="color:#aaa; font-size:10px;">${fullTzName}</span><br><br>` +
+                            timeHtml + `<br>` +
                             `${glintWarningHtml}</div>`;
                     }
                 }
