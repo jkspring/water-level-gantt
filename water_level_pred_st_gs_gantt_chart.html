@@ -987,22 +987,38 @@
             // Sync cache
             await ensureCompletionData();
 
-            let lastRunText = "N/A";
+            let lastRunText = "Last Run: N/A";
             if (cachedFeatures.length > 0) {
-                let maxTime = 0;
+                let pydroMaxTime = 0;
+                let stofsMaxTime = 0;
+                
                 cachedFeatures.forEach(f => {
                     if (f.attributes.filename) {
-                        const match = f.attributes.filename.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
-                        if (match) {
-                            const ts = Date.UTC(parseInt(match[1]), parseInt(match[2])-1, parseInt(match[3]), parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
-                            if (ts > maxTime) maxTime = ts;
+                        const source = (f.attributes.source || '').toUpperCase();
+                        let ts = 0;
+                        
+                        // Check for the new format: _YYYYMMDDT<HH>
+                        const matchNew = f.attributes.filename.match(/_(\d{4})(\d{2})(\d{2})T(\d{2})/);
+                        // Check for the old format: _YYYYMMDD_HHMMSS
+                        const matchOld = f.attributes.filename.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+                        
+                        if (matchNew) {
+                            ts = Date.UTC(parseInt(matchNew[1]), parseInt(matchNew[2])-1, parseInt(matchNew[3]), parseInt(matchNew[4]), 0, 0);
+                        } else if (matchOld) {
+                            ts = Date.UTC(parseInt(matchOld[1]), parseInt(matchOld[2])-1, parseInt(matchOld[3]), parseInt(matchOld[4]), parseInt(matchOld[5]), parseInt(matchOld[6]));
+                        }
+                        
+                        if (ts > 0) {
+                            if (source === 'PYDRO' && ts > pydroMaxTime) pydroMaxTime = ts;
+                            if (source === 'STOFS' && ts > stofsMaxTime) stofsMaxTime = ts;
                         }
                     }
                 });
                 
-                if (maxTime > 0) {
+                // Helper to format the time using your existing time zone logic
+                const formatTime = (timeVal) => {
                     const useApexUTC = (tzSetting !== 'local');
-                    let adjTime = maxTime;
+                    let adjTime = timeVal;
                     if (tzSetting !== 'local' && tzSetting !== 'utc') adjTime += getTzOffsetMs(adjTime, tzSetting);
                     
                     const d = new Date(adjTime);
@@ -1014,12 +1030,20 @@
                     
                     const tzSelect = document.getElementById('filter-tz');
                     const tzName = tzSelect.options[tzSelect.selectedIndex].text.split(' (')[0];
-                    lastRunText = `${yyyy}-${mm}-${dd} ${hh}:${mins} ${tzName}`;
+                    return `${yyyy}-${mm}-${dd} ${hh}:${mins} ${tzName}`;
+                };
+
+                let runTexts = [];
+                if (pydroMaxTime > 0) runTexts.push(`Pydro: ${formatTime(pydroMaxTime)}`);
+                if (stofsMaxTime > 0) runTexts.push(`STOFS: ${formatTime(stofsMaxTime)}`);
+                
+                if (runTexts.length > 0) {
+                    lastRunText = runTexts.join('  |  ');
                 }
             }
             
             const lastRunEl = document.getElementById('last-run-time');
-            if (lastRunEl) lastRunEl.innerText = `Last Run: ${lastRunText}`;
+            if (lastRunEl) lastRunEl.innerText = lastRunText;
             
             if (cachedFeatures.length > 0 || mainChart) {
                 processAndDraw(cachedFeatures, selectedDate, tzSetting);
@@ -1406,7 +1430,7 @@
 
             const commonYAxis = { 
                 labels: { 
-                    minWidth: 170, maxWidth: 200, align: 'right', offsetX: -5,
+                    minWidth: 100, maxWidth: 100, align: 'right', offsetX: -5,
                     style: { fontSize: '11px', fontWeight: 500, fontFamily: 'Segoe UI' },
                     formatter: function(val) {
                         if (val === undefined || val === null) return "";
@@ -1594,6 +1618,7 @@
                             `<span><b>Project:</b> ${d.project}</span><br>` +
                             `<span><b>Line:</b> ${d.originalLine}</span> <span style="color: ${statusCol}; font-weight: 600;">[${statusText}]</span><br>` +
                             `<span><b>Datum:</b> ${d.datum}</span><br>` +
+                            `<hr style="border-top:1px solid #444; margin:5px 0;">` +
                             timeHtml +
                             `${glintWarningHtml}</div>`;
                     }
